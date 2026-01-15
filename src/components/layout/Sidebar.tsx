@@ -81,7 +81,12 @@ const adminNavItems: NavItem[] = [
   },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  isOpen?: boolean
+  onClose?: () => void
+}
+
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname()
   const { role, profile } = useAuth()
 
@@ -95,8 +100,14 @@ export function Sidebar() {
     navItems = userNavItems
   }
 
-  return (
-    <aside className="hidden md:flex w-64 flex-col border-r bg-white">
+  const handleLinkClick = () => {
+    if (onClose) {
+      onClose()
+    }
+  }
+
+  const sidebarContent = (
+    <>
       <nav className="flex-1 space-y-1 p-4">
         {navItems.map((item) => {
           // Exact match OR is a sub-route (but not for root dashboard routes)
@@ -107,11 +118,12 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={handleLinkClick}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-black text-white'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  ? 'bg-accent text-black'
+                  : 'text-text-primary hover:bg-bg-hover'
               )}
             >
               {item.icon}
@@ -121,15 +133,63 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t p-4 h-1/5">
-        <p className="text-xs text-gray-500">Version 1.0.0</p>
+      <div className="border-t border-border p-4 h-1/5">
+        <p className="text-xs text-gray-400">Version 1.0.0</p>
         <p className="text-xs text-gray-400 mt-1">
           {role ? `${role.charAt(0).toUpperCase() + role.slice(1)} Mode` : 'Loading...'}
         </p>
         {profile && (
-          <p className="text-xs text-gray-500 mt-1">{profile.email}</p>
+          <p className="text-xs text-gray-400 mt-1">{profile.email}</p>
         )}
       </div>
-    </aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex w-64 flex-col border-r border-border bg-bg-secondary">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Sidebar */}
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 z-40 md:hidden"
+            onClick={onClose}
+          />
+          {/* Drawer */}
+          <aside className="fixed left-0 top-0 bottom-0 w-64 flex flex-col border-r border-border bg-bg-secondary z-50 md:hidden">
+            {/* Close button */}
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-lg font-bold text-text-primary">Menu</h2>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-lg hover:bg-bg-hover transition-colors"
+                aria-label="Close menu"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 text-text-primary"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            {sidebarContent}
+          </aside>
+        </>
+      )}
+    </>
   )
 }

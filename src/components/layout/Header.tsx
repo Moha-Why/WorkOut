@@ -6,7 +6,11 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { useState } from 'react'
 
-export function Header() {
+interface HeaderProps {
+  onMenuClick?: () => void
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
   const { profile, signOut } = useAuth()
   const { isOnline, hasPendingItems, sync } = useOfflineSync()
   const [showMenu, setShowMenu] = useState(false)
@@ -17,11 +21,31 @@ export function Header() {
   }
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-white">
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-bg-secondary">
       <div className="flex h-16 items-center justify-between px-4 md:px-6">
-        {/* Logo */}
+        {/* Mobile menu button + Logo */}
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-gray-900">Workout</h1>
+          <button
+            onClick={onMenuClick}
+            className="md:hidden p-2 rounded-lg hover:bg-bg-hover transition-colors"
+            aria-label="Toggle menu"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-6 w-6 text-text-primary"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 6h16M4 12h16M4 18h16"
+              />
+            </svg>
+          </button>
+          <h1 className="text-2xl font-bold text-text-primary">Workout</h1>
         </div>
 
         {/* Right side */}
@@ -30,7 +54,7 @@ export function Header() {
           <div className="hidden md:flex items-center gap-2">
             {!isOnline && (
               <Badge variant="warning" className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-yellow-600" />
+                <span className="h-2 w-2 rounded-full bg-accent" />
                 Offline
               </Badge>
             )}
@@ -50,22 +74,22 @@ export function Header() {
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-bg-hover transition-colors"
             >
-              <div className="h-8 w-8 rounded-full bg-black text-white flex items-center justify-center font-medium">
+              <div className="h-8 w-8 rounded-full bg-accent text-black flex items-center justify-center font-medium">
                 {profile?.name.charAt(0).toUpperCase()}
               </div>
               <div className="hidden md:block text-left">
-                <p className="text-sm font-medium text-gray-900">
+                <p className="text-sm font-medium text-text-primary">
                   {profile?.name}
                 </p>
-                <p className="text-xs text-gray-600 capitalize">
+                <p className="text-xs text-gray-400 capitalize">
                   {profile?.role}
                 </p>
               </div>
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4 text-gray-600"
+                className="h-4 w-4 text-gray-400"
                 viewBox="0 0 20 20"
                 fill="currentColor"
               >
@@ -84,17 +108,17 @@ export function Header() {
                   className="fixed inset-0 z-40"
                   onClick={() => setShowMenu(false)}
                 />
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                  <div className="px-4 py-2 border-b">
-                    <p className="text-sm font-medium text-gray-900">
+                <div className="absolute right-0 mt-2 w-56 bg-bg-secondary rounded-lg shadow-lg shadow-black/50 border border-border py-1 z-50">
+                  <div className="px-4 py-2 border-b border-border">
+                    <p className="text-sm font-medium text-text-primary">
                       {profile?.name}
                     </p>
-                    <p className="text-xs text-gray-600">{profile?.email}</p>
+                    <p className="text-xs text-gray-400">{profile?.email}</p>
                   </div>
 
                   <button
                     onClick={handleSignOut}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 transition-colors"
+                    className="w-full text-left px-4 py-2 text-sm text-error hover:bg-bg-hover transition-colors"
                   >
                     Sign Out
                   </button>

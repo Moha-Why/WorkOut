@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { Toast } from '@/components/ui/Toast'
 import { extractVideoId, isValidVideoUrl } from '@/lib/utils/video'
 
 export default function CoachExercisesPage() {
@@ -19,6 +21,14 @@ export default function CoachExercisesPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [exerciseToDelete, setExerciseToDelete] = useState<{ id: string; name: string } | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
+    message: '',
+    type: 'success',
+    isOpen: false,
+  })
 
   // Form state
   const [formData, setFormData] = useState({
@@ -37,14 +47,101 @@ export default function CoachExercisesPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    fetchExercises()
-    fetchMuscles()
-  }, [])
+    if (profile) {
+      fetchExercises()
+      fetchMuscles()
+    }
+  }, [profile])
+
+  // Get or create a library program and workout for this coach
+  const getLibraryWorkoutId = async (): Promise<string | null> => {
+    if (!profile) return null
+
+    // Try to find existing library program
+    const { data: existingProgram } = await supabase
+      .from('programs')
+      .select('id')
+      .eq('name', `Exercise Library - ${profile.id}`)
+      .eq('created_by', profile.id)
+      .single()
+
+    let programId: string
+
+    if (existingProgram) {
+      programId = (existingProgram as { id: string }).id
+    } else {
+      // Create library program
+      const { data: newProgram, error: programError } = await supabase
+        .from('programs')
+        .insert({
+          name: `Exercise Library - ${profile.id}`,
+          description: 'Internal library for storing exercise templates',
+          weeks: 0,
+          created_by: profile.id,
+        } as never)
+        .select('id')
+        .single<{ id: string }>()
+
+      if (programError || !newProgram) {
+        console.error('Error creating library program:', programError)
+        return null
+      }
+      programId = newProgram.id
+    }
+
+    // Try to find existing library workout
+    const { data: existingWorkout } = await supabase
+      .from('workouts')
+      .select('id')
+      .eq('program_id', programId)
+      .eq('name', 'Exercise Library')
+      .single()
+
+    if (existingWorkout) {
+      return (existingWorkout as { id: string }).id
+    }
+
+    // Create library workout
+    const { data: newWorkout, error: workoutError } = await supabase
+      .from('workouts')
+      .insert({
+        program_id: programId,
+        name: 'Exercise Library',
+        week_number: 0,
+        day_number: 0,
+        order_index: 0,
+      } as never)
+      .select('id')
+      .single<{ id: string }>()
+
+    if (workoutError || !newWorkout) {
+      console.error('Error creating library workout:', workoutError)
+      return null
+    }
+
+    return newWorkout.id
+  }
 
   const fetchExercises = async () => {
+    if (!profile) {
+      setIsLoading(false)
+      return
+    }
+
+    // Get coach's library workout ID
+    const libraryWorkoutId = await getLibraryWorkoutId()
+
+    if (!libraryWorkoutId) {
+      setExercises([])
+      setIsLoading(false)
+      return
+    }
+
+    // Fetch ONLY exercises from coach's library
     const { data } = await supabase
       .from('exercises')
       .select('*')
+      .eq('workout_id', libraryWorkoutId)
       .order('created_at', { ascending: false })
 
     setExercises(data || [])
@@ -85,16 +182,63 @@ export default function CoachExercisesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log('handleSubmit called', { formData })
 
-    if (!formData.name || !formData.video_id || formData.target_muscles.length === 0) {
-      alert('Please fill in all required fields')
+    if (isSubmitting) {
+      console.log('Already submitting, returning')
+      return
+    }
+
+    setIsSubmitting(true)
+
+    // Validate name
+    if (!formData.name.trim()) {
+      setToast({ message: 'Please enter an exercise name', type: 'error', isOpen: true })
+      setIsSubmitting(false)
+      return
+    }
+
+    // Validate video URL
+    if (!formData.video_url.trim()) {
+      setToast({ message: 'Please enter a video URL', type: 'error', isOpen: true })
+      setIsSubmitting(false)
+      return
+    }
+
+    // Try to extract video ID if not already set
+    let videoId = formData.video_id
+    if (!videoId && formData.video_url) {
+      videoId = extractVideoId(formData.video_url, formData.video_provider) || ''
+      if (videoId) {
+        setFormData(prev => ({ ...prev, video_id: videoId }))
+      }
+    }
+
+    if (!videoId) {
+      setToast({ message: 'Could not extract video ID from URL. Please check the URL format.', type: 'error', isOpen: true })
+      setIsSubmitting(false)
+      return
+    }
+
+    // Validate target muscles
+    if (formData.target_muscles.length === 0) {
+      setToast({ message: 'Please select at least one target muscle', type: 'error', isOpen: true })
+      setIsSubmitting(false)
+      return
+    }
+
+    // Get or create library workout ID
+    const libraryWorkoutId = await getLibraryWorkoutId()
+    if (!libraryWorkoutId) {
+      setToast({ message: 'Failed to create library workout. Please try again.', type: 'error', isOpen: true })
+      setIsSubmitting(false)
       return
     }
 
     const exerciseData = {
       name: formData.name,
       video_provider: formData.video_provider,
-      video_id: formData.video_id,
+      video_id: videoId,
       target_muscles: formData.target_muscles,
       assisting_muscles: formData.assisting_muscles,
       sets: formData.sets ? parseInt(formData.sets) : null,
@@ -102,31 +246,41 @@ export default function CoachExercisesPage() {
       rest_seconds: formData.rest_seconds ? parseInt(formData.rest_seconds) : null,
       notes: formData.notes || null,
       order_index: 0,
-      workout_id: null, // This is for library, will be set when added to workout
+      workout_id: libraryWorkoutId,
     }
 
     if (editingExercise) {
       // Update existing
       const { error } = await supabase
         .from('exercises')
-        .update(exerciseData)
+        .update(exerciseData as never)
         .eq('id', editingExercise.id)
 
-      if (!error) {
-        alert('Exercise updated successfully!')
+      if (error) {
+        console.error('Error updating exercise:', error)
+        setToast({ message: `Error updating exercise: ${error.message}`, type: 'error', isOpen: true })
+        setIsSubmitting(false)
+      } else {
+        setToast({ message: 'Exercise updated successfully!', type: 'success', isOpen: true })
         resetForm()
         fetchExercises()
+        setIsSubmitting(false)
       }
     } else {
       // Create new
       const { error } = await supabase
         .from('exercises')
-        .insert(exerciseData)
+        .insert(exerciseData as never)
 
-      if (!error) {
-        alert('Exercise created successfully!')
+      if (error) {
+        console.error('Error creating exercise:', error)
+        setToast({ message: `Error creating exercise: ${error.message}`, type: 'error', isOpen: true })
+        setIsSubmitting(false)
+      } else {
+        setToast({ message: 'Exercise created successfully!', type: 'success', isOpen: true })
         resetForm()
         fetchExercises()
+        setIsSubmitting(false)
       }
     }
   }
@@ -148,14 +302,17 @@ export default function CoachExercisesPage() {
     setShowForm(true)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this exercise?')) return
+  const handleDelete = async () => {
+    if (!exerciseToDelete) return
 
-    const { error } = await supabase.from('exercises').delete().eq('id', id)
+    const { error } = await supabase.from('exercises').delete().eq('id', exerciseToDelete.id)
 
     if (!error) {
-      alert('Exercise deleted!')
+      setToast({ message: 'Exercise deleted!', type: 'success', isOpen: true })
+      setExerciseToDelete(null)
       fetchExercises()
+    } else {
+      setToast({ message: 'Error deleting exercise', type: 'error', isOpen: true })
     }
   }
 
@@ -179,7 +336,7 @@ export default function CoachExercisesPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-black" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-accent" />
       </div>
     )
   }
@@ -189,8 +346,8 @@ export default function CoachExercisesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">تماريني</h1>
-          <p className="text-gray-600 mt-1">Manage your exercise library</p>
+          <h1 className="text-3xl font-bold text-text-primary">تماريني</h1>
+          <p className="text-gray-400 mt-1">Manage your exercise library</p>
         </div>
         <Button onClick={() => setShowForm(!showForm)}>
           {showForm ? 'Cancel' : '+ Add Exercise'}
@@ -227,7 +384,7 @@ export default function CoachExercisesPage() {
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         formData.video_provider === provider
                           ? 'bg-black text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-bg-hover text-gray-700 hover:bg-gray-200'
                       }`}
                     >
                       {provider.charAt(0).toUpperCase() + provider.slice(1)}
@@ -303,7 +460,7 @@ export default function CoachExercisesPage() {
                       className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                         formData.assisting_muscles.includes(muscle.id)
                           ? 'bg-blue-500 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : 'bg-bg-hover text-gray-700 hover:bg-gray-200'
                       }`}
                     >
                       {muscle.name}
@@ -320,16 +477,27 @@ export default function CoachExercisesPage() {
                   value={formData.notes}
                   onChange={e => setFormData({ ...formData, notes: e.target.value })}
                   rows={3}
-                  className="w-full rounded-lg border border-gray-300 px-4 py-2"
+                  className="w-full rounded-lg border border-border px-4 py-2"
                   placeholder="Form cues, tips, etc."
                 />
               </div>
 
               <div className="flex gap-4">
-                <Button type="submit" variant="primary" className="flex-1">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="flex-1"
+                  disabled={isSubmitting}
+                  isLoading={isSubmitting}
+                >
                   {editingExercise ? 'Update Exercise' : 'Create Exercise'}
                 </Button>
-                <Button type="button" variant="outline" onClick={resetForm}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetForm}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </Button>
               </div>
@@ -343,7 +511,7 @@ export default function CoachExercisesPage() {
         {exercises.length === 0 ? (
           <Card className="col-span-full">
             <CardContent className="py-12 text-center">
-              <p className="text-gray-600 mb-2">No exercises yet</p>
+              <p className="text-gray-400 mb-2">No exercises yet</p>
               <p className="text-sm text-gray-500">
                 Click "Add Exercise" to create your first exercise
               </p>
@@ -353,13 +521,16 @@ export default function CoachExercisesPage() {
           exercises.map((exercise) => (
             <Card key={exercise.id}>
               <CardContent className="pt-6">
-                <h3 className="font-bold text-gray-900 mb-2">{exercise.name}</h3>
-                <div className="flex gap-2 mb-4">
+                <h3 className="font-bold text-text-primary mb-2">{exercise.name}</h3>
+                <div className="flex flex-wrap gap-2 mb-4">
                   {exercise.sets && (
                     <Badge variant="default">{exercise.sets} sets</Badge>
                   )}
                   {exercise.reps && (
                     <Badge variant="default">{exercise.reps} reps</Badge>
+                  )}
+                  {exercise.rest_seconds && (
+                    <Badge variant="default">{exercise.rest_seconds}s rest</Badge>
                   )}
                 </div>
                 <div className="flex gap-2">
@@ -374,7 +545,10 @@ export default function CoachExercisesPage() {
                   <Button
                     size="sm"
                     variant="danger"
-                    onClick={() => handleDelete(exercise.id)}
+                    onClick={() => {
+                      setExerciseToDelete({ id: exercise.id, name: exercise.name })
+                      setShowDeleteConfirm(true)
+                    }}
                     className="flex-1"
                   >
                     Delete
@@ -385,6 +559,29 @@ export default function CoachExercisesPage() {
           ))
         )}
       </div>
+
+      {/* Delete Exercise Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => {
+          setShowDeleteConfirm(false)
+          setExerciseToDelete(null)
+        }}
+        onConfirm={handleDelete}
+        title="Delete Exercise"
+        message={`Are you sure you want to delete "${exerciseToDelete?.name}"? This action cannot be undone.`}
+        confirmText="Delete Exercise"
+        cancelText="Cancel"
+        variant="danger"
+      />
+
+      {/* Toast Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isOpen={toast.isOpen}
+        onClose={() => setToast({ ...toast, isOpen: false })}
+      />
     </div>
   )
 }

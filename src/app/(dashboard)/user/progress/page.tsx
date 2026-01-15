@@ -84,7 +84,7 @@ export default function ProgressPage() {
         .order('completed_at', { ascending: false })
 
       const streak = workoutDates
-        ? calculateStreak(workoutDates.map(d => new Date(d.completed_at)))
+        ? calculateStreak((workoutDates as { completed_at: string }[]).map(d => new Date(d.completed_at)))
         : 0
 
       // Format progress entries
@@ -112,7 +112,7 @@ export default function ProgressPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-black" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-accent" />
       </div>
     )
   }
@@ -121,8 +121,8 @@ export default function ProgressPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Progress</h1>
-        <p className="text-gray-600 mt-1">Track your fitness journey</p>
+        <h1 className="text-3xl font-bold text-text-primary">Progress</h1>
+        <p className="text-gray-500 mt-1">Track your fitness journey</p>
       </div>
 
       {/* Stats grid */}
@@ -130,10 +130,10 @@ export default function ProgressPage() {
         <Card>
           <CardContent className="pt-6">
             <div>
-              <p className="text-sm font-medium text-gray-600">
+              <p className="text-sm font-medium text-gray-500">
                 Total Workouts
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
+              <p className="text-3xl font-bold text-text-primary mt-2">
                 {stats.total_workouts}
               </p>
               <p className="text-sm text-green-600 mt-1">
@@ -146,10 +146,10 @@ export default function ProgressPage() {
         <Card>
           <CardContent className="pt-6">
             <div>
-              <p className="text-sm font-medium text-gray-600">
+              <p className="text-sm font-medium text-gray-500">
                 Total Exercises
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
+              <p className="text-3xl font-bold text-text-primary mt-2">
                 {stats.total_exercises}
               </p>
               <p className="text-sm text-green-600 mt-1">
@@ -162,13 +162,13 @@ export default function ProgressPage() {
         <Card>
           <CardContent className="pt-6">
             <div>
-              <p className="text-sm font-medium text-gray-600">
+              <p className="text-sm font-medium text-gray-500">
                 Current Streak
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
+              <p className="text-3xl font-bold text-text-primary mt-2">
                 {stats.streak}
               </p>
-              <p className="text-sm text-gray-600 mt-1">days</p>
+              <p className="text-sm text-gray-500 mt-1">days</p>
             </div>
           </CardContent>
         </Card>
@@ -176,13 +176,13 @@ export default function ProgressPage() {
         <Card>
           <CardContent className="pt-6">
             <div>
-              <p className="text-sm font-medium text-gray-600">
+              <p className="text-sm font-medium text-gray-500">
                 Avg Per Week
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">
+              <p className="text-3xl font-bold text-text-primary mt-2">
                 {stats.this_week_workouts}
               </p>
-              <p className="text-sm text-gray-600 mt-1">workouts</p>
+              <p className="text-sm text-gray-500 mt-1">workouts</p>
             </div>
           </CardContent>
         </Card>
@@ -198,7 +198,7 @@ export default function ProgressPage() {
             <div className="text-center py-12">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-12 w-12 text-gray-400 mx-auto mb-4"
+                className="h-12 w-12 text-gray-500 mx-auto mb-4"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -210,7 +210,7 @@ export default function ProgressPage() {
                   d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
                 />
               </svg>
-              <p className="text-gray-600 mb-2">No activity yet</p>
+              <p className="text-gray-500 mb-2">No activity yet</p>
               <p className="text-sm text-gray-500">
                 Complete your first workout to see your progress here
               </p>
@@ -220,13 +220,13 @@ export default function ProgressPage() {
               {recentProgress.map((entry) => (
                 <div
                   key={entry.id}
-                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-4 bg-bg-hover rounded-lg"
                 >
                   <div className="flex-1">
-                    <p className="font-medium text-gray-900">
+                    <p className="font-medium text-text-primary">
                       {entry.exercise_name}
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-gray-500">
                       {entry.workout_name}
                     </p>
                   </div>

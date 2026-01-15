@@ -104,7 +104,8 @@ CREATE TABLE public.user_exercise_progress (
   exercise_id UUID REFERENCES public.exercises(id) ON DELETE CASCADE,
   completed_at TIMESTAMPTZ NOT NULL,
   synced BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, exercise_id, completed_at)
 );
 
 -- =============================================
@@ -116,7 +117,8 @@ CREATE TABLE public.user_workout_progress (
   workout_id UUID REFERENCES public.workouts(id) ON DELETE CASCADE,
   completed_at TIMESTAMPTZ NOT NULL,
   synced BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, workout_id, completed_at)
 );
 
 -- =============================================

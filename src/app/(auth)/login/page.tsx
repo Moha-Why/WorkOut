@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -74,12 +75,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-bg-main px-4">
       <div className="w-full max-w-md">
         {/* Logo/Brand */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Workout</h1>
-          <p className="text-gray-600">Your personal training platform</p>
+          <h1 className="text-4xl font-bold text-text-primary mb-2">Workout</h1>
+          <p className="text-gray-400">Your personal training platform</p>
         </div>
 
         <Card>
@@ -146,13 +147,25 @@ export default function LoginPage() {
                 />
               )}
 
+              {/* Forgot Password Link (login only) */}
+              {mode === 'login' && (
+                <div className="text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm text-gray-400 hover:text-accent hover:underline transition-colors"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
+
               {/* Error message */}
               {error && (
                 <div
-                  className={`p-3 rounded-lg text-sm ${
+                  className={`p-3 rounded-lg text-sm border ${
                     error.includes('created')
-                      ? 'bg-green-50 text-green-800'
-                      : 'bg-red-50 text-red-800'
+                      ? 'bg-success/10 text-success border-success/30'
+                      : 'bg-error/10 text-error border-error/30'
                   }`}
                 >
                   {error}
@@ -173,7 +186,7 @@ export default function LoginPage() {
 
             {/* Toggle mode */}
             <div className="mt-6 text-center text-sm">
-              <span className="text-gray-600">
+              <span className="text-gray-400">
                 {mode === 'login'
                   ? "Don't have an account?"
                   : 'Already have an account?'}
@@ -184,7 +197,7 @@ export default function LoginPage() {
                   setMode(mode === 'login' ? 'signup' : 'login')
                   setError(null)
                 }}
-                className="font-medium text-black hover:underline"
+                className="font-medium text-accent hover:text-accent-hover hover:underline transition-colors"
               >
                 {mode === 'login' ? 'Sign Up' : 'Sign In'}
               </button>
@@ -192,7 +205,7 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        {/* PWA Install prompt would go here */}
+        {/* PWA Install prompt */}
         <div className="mt-6 text-center text-xs text-gray-500">
           <p>Install this app for offline access</p>
         </div>

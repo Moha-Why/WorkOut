@@ -57,7 +57,7 @@ export async function syncPendingProgress(): Promise<SyncStatus> {
             exercise_id: p.entity_id,
             completed_at: new Date(p.completed_at).toISOString(),
             synced: true,
-          }))
+          })) as never
         )
 
       if (error) {
@@ -86,7 +86,7 @@ export async function syncPendingProgress(): Promise<SyncStatus> {
             workout_id: p.entity_id,
             completed_at: new Date(p.completed_at).toISOString(),
             synced: true,
-          }))
+          })) as never
         )
 
       if (error) {

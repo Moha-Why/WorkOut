@@ -2,36 +2,69 @@
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Workout, Exercise } from '@/types'
+import { Workout, Exercise, Program } from '@/types'
 import { WorkoutCard } from '@/components/workouts/WorkoutCard'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import Link from 'next/link'
 
 interface WorkoutWithExercises extends Workout {
   exercises: Exercise[]
+  is_completed?: boolean
 }
 
 export default function UserWorkoutsPage() {
   const { profile } = useAuth()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const programId = searchParams.get('program')
 
   const [workouts, setWorkouts] = useState<WorkoutWithExercises[]>([])
   const [programName, setProgramName] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [availablePrograms, setAvailablePrograms] = useState<Program[]>([])
 
   useEffect(() => {
     const fetchWorkouts = async () => {
-      // Always stop loading, even if conditions aren't met
-      if (!profile || !programId) {
+      if (!profile) {
         setIsLoading(false)
         return
       }
 
+      // Always set loading to true when fetching
+      setIsLoading(true)
+
       const supabase = createClient()
+
+      // If no program ID, fetch user's programs first
+      if (!programId) {
+        const { data: userPrograms } = await supabase
+          .from('user_programs')
+          .select(`
+            program_id,
+            programs (
+              id,
+              name,
+              description,
+              weeks
+            )
+          `)
+          .eq('user_id', profile.id)
+
+        const programs = userPrograms?.map((p: any) => p.programs) || []
+        setAvailablePrograms(programs)
+
+        // If user has exactly one program, auto-redirect to it
+        if (programs.length === 1) {
+          router.replace(`/user/workouts?program=${programs[0].id}`)
+          return
+        }
+
+        setIsLoading(false)
+        return
+      }
 
       // Fetch program info
       const { data: program } = await supabase
@@ -55,17 +88,39 @@ export default function UserWorkoutsPage() {
         .order('week_number', { ascending: true })
         .order('day_number', { ascending: true })
 
-      setWorkouts(workoutData as WorkoutWithExercises[] || [])
+      // Fetch completion status for each workout
+      const workoutsWithCompletion = await Promise.all(
+        (workoutData || []).map(async (workout: any) => {
+          const { data: progressData } = await supabase
+            .from('user_workout_progress')
+            .select('id')
+            .eq('user_id', profile.id)
+            .eq('workout_id', workout.id)
+            .limit(1)
+
+          return {
+            ...workout,
+            is_completed: (progressData && progressData.length > 0),
+          }
+        })
+      )
+
+      setWorkouts(workoutsWithCompletion as WorkoutWithExercises[])
       setIsLoading(false)
     }
 
     fetchWorkouts()
-  }, [profile, programId])
+
+    // Set up an interval to refresh data periodically (every 10 seconds)
+    const interval = setInterval(fetchWorkouts, 10000)
+
+    return () => clearInterval(interval)
+  }, [profile, programId, router])
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-black" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border border-t-accent" />
       </div>
     )
   }
@@ -73,15 +128,47 @@ export default function UserWorkoutsPage() {
   if (!programId) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900">My Workouts</h1>
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-gray-600">Please select a program to view workouts</p>
-            <Link href="/user" className="text-black font-medium mt-2 inline-block">
-              ← Back to Dashboard
-            </Link>
-          </CardContent>
-        </Card>
+        <div>
+          <Link href="/user" className="text-sm text-gray-400 hover:text-accent mb-2 inline-block">
+            ← Back to Dashboard
+          </Link>
+          <h1 className="text-3xl font-bold text-text-primary">My Workouts</h1>
+        </div>
+
+        {availablePrograms.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-gray-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <p className="text-gray-400 mb-2">No programs assigned yet</p>
+              <p className="text-sm text-gray-500">Contact your coach to get started with a workout program</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <p className="text-gray-400">Select a program to view workouts</p>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {availablePrograms.map((program) => (
+                <Link key={program.id} href={`/user/workouts?program=${program.id}`}>
+                  <Card className="hover:shadow-lg hover:shadow-black/30 hover:border-accent/50 transition-all cursor-pointer">
+                    <CardHeader>
+                      <CardTitle>{program.name}</CardTitle>
+                      <CardDescription>{program.weeks} {program.weeks === 1 ? 'week' : 'weeks'}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {program.description && <p className="text-sm text-gray-400 mb-4">{program.description}</p>}
+                      <div className="flex items-center justify-between">
+                        <Badge variant="info">Active</Badge>
+                        <span className="text-sm text-gray-400">View Workouts →</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     )
   }
@@ -98,11 +185,11 @@ export default function UserWorkoutsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <Link href="/user" className="text-sm text-gray-600 hover:text-black mb-2 inline-block">
+        <Link href="/user" className="text-sm text-gray-400 hover:text-accent mb-2 inline-block">
           ← Back to Dashboard
         </Link>
-        <h1 className="text-3xl font-bold text-gray-900">{programName}</h1>
-        <p className="text-gray-600 mt-1">
+        <h1 className="text-3xl font-bold text-text-primary">{programName}</h1>
+        <p className="text-gray-400 mt-1">
           {workouts.length} {workouts.length === 1 ? 'workout' : 'workouts'}
         </p>
       </div>
@@ -113,7 +200,7 @@ export default function UserWorkoutsPage() {
           <CardContent className="py-12 text-center">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-12 w-12 text-gray-400 mx-auto mb-4"
+              className="h-12 w-12 text-gray-500 mx-auto mb-4"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -125,7 +212,7 @@ export default function UserWorkoutsPage() {
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <p className="text-gray-600 mb-2">No workouts in this program yet</p>
+            <p className="text-gray-400 mb-2">No workouts in this program yet</p>
             <p className="text-sm text-gray-500">
               Your coach hasn't added any workouts yet
             </p>
@@ -136,7 +223,7 @@ export default function UserWorkoutsPage() {
           .sort(([a], [b]) => Number(a) - Number(b))
           .map(([week, weekWorkouts]) => (
             <div key={week}>
-              <h2 className="text-xl font-bold text-gray-900 mb-4">
+              <h2 className="text-xl font-bold text-text-primary mb-4">
                 Week {week}
               </h2>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -150,6 +237,7 @@ export default function UserWorkoutsPage() {
                       <WorkoutCard
                         workout={workout}
                         exerciseCount={workout.exercises.length}
+                        isCompleted={workout.is_completed || false}
                       />
                     </Link>
                   ))}

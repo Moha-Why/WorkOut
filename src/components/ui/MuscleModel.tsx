@@ -70,21 +70,23 @@ export function MuscleModel({
       {view === 'both' && (
         <div className="mb-4 flex gap-2">
           <button
+            type="button"
             onClick={() => setSelectedView('front')}
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               selectedView === 'front'
-                ? 'bg-black text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-accent text-black'
+                : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
             }`}
           >
             Front
           </button>
           <button
+            type="button"
             onClick={() => setSelectedView('back')}
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               selectedView === 'back'
-                ? 'bg-black text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                ? 'bg-accent text-black'
+                : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
             }`}
           >
             Back
@@ -139,11 +141,11 @@ export function MuscleModel({
 
         {/* Legend */}
         {(targetMuscles.length > 0 || assistingMuscles.length > 0) && (
-          <div className="mt-4 flex flex-wrap gap-4 text-xs">
+          <div className="mt-2 flex flex-wrap gap-4 text-xs">
             {targetMuscles.length > 0 && (
               <div className="flex items-center gap-2">
                 <div className="h-4 w-4 rounded bg-red-500/80 border-2 border-gray-900" />
-                <span className="text-gray-700">Target Muscles</span>
+                <span className="text-gray-400">Target Muscles</span>
               </div>
             )}
             {assistingMuscles.length > 0 && (
@@ -155,7 +157,7 @@ export function MuscleModel({
                       'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(59, 130, 246, 0.6) 2px, rgba(59, 130, 246, 0.6) 4px)',
                   }}
                 />
-                <span className="text-gray-700">Assisting Muscles</span>
+                <span className="text-gray-400">Assisting Muscles</span>
               </div>
             )}
           </div>
@@ -164,7 +166,7 @@ export function MuscleModel({
 
       {/* Muscle list */}
       {interactive && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-2 space-y-2">
           {currentMuscles.map((muscle) => {
             const isSelected =
               targetMuscles.includes(muscle.id) ||
@@ -172,11 +174,12 @@ export function MuscleModel({
             return (
               <button
                 key={muscle.id}
+                type="button"
                 onClick={() => handleMuscleClick(muscle.id)}
                 className={`w-full rounded-lg px-4 py-2 text-left text-sm transition-colors ${
                   isSelected
-                    ? 'bg-black text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ? 'bg-accent text-black'
+                    : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
                 }`}
               >
                 {muscle.name}

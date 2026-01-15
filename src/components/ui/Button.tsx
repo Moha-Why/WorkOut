@@ -24,14 +24,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       'inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50'
 
     const variants = {
-      primary: 'bg-black text-white hover:bg-gray-800 focus-visible:ring-black',
+      primary: 'bg-accent text-black hover:bg-accent-hover focus-visible:ring-accent',
       secondary:
-        'bg-gray-200 text-gray-900 hover:bg-gray-300 focus-visible:ring-gray-400',
+        'bg-bg-hover text-text-primary hover:bg-[#2a2a2a] focus-visible:ring-border',
       outline:
-        'border-2 border-gray-300 bg-transparent hover:bg-gray-100 focus-visible:ring-gray-400',
-      ghost: 'bg-transparent hover:bg-gray-100 focus-visible:ring-gray-400',
+        'border-2 border-border bg-transparent text-text-primary hover:bg-bg-hover focus-visible:ring-border',
+      ghost: 'bg-transparent text-text-primary hover:bg-bg-hover focus-visible:ring-border',
       danger:
-        'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600',
+        'bg-error text-white hover:bg-[#ff3333] focus-visible:ring-error',
     }
 
     const sizes = {

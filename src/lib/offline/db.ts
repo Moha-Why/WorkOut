@@ -115,6 +115,11 @@ export async function saveWorkout(workout: OfflineWorkout) {
   await db.put('workouts', workout)
 }
 
+export async function deleteWorkout(id: string) {
+  const db = await getDB()
+  await db.delete('workouts', id)
+}
+
 export async function getWorkout(id: string): Promise<OfflineWorkout | undefined> {
   const db = await getDB()
   return db.get('workouts', id)

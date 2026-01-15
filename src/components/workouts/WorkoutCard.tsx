@@ -28,7 +28,7 @@ export function WorkoutCard({
 
   return (
     <Card
-      className={`transition-all hover:shadow-lg ${
+      className={`transition-all hover:shadow-lg hover:shadow-black/30 hover:border-accent/50 ${
         onClick ? 'cursor-pointer' : ''
       } ${className}`}
       onClick={onClick}
@@ -51,7 +51,7 @@ export function WorkoutCard({
           </div>
 
           {isCompleted && (
-            <div className="bg-green-500 text-white rounded-full p-2">
+            <div className="bg-success text-white rounded-full p-2">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 className="h-5 w-5"
@@ -74,12 +74,12 @@ export function WorkoutCard({
         {hasProgress && completionPercentage > 0 && (
           <div className="mb-4">
             <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-gray-600">Progress</span>
-              <span className="font-medium">{completionPercentage}%</span>
+              <span className="text-gray-400">Progress</span>
+              <span className="font-medium text-text-primary">{completionPercentage}%</span>
             </div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-2 bg-bg-hover rounded-full overflow-hidden">
               <div
-                className="h-full bg-green-500 transition-all duration-300"
+                className="h-full bg-success transition-all duration-300"
                 style={{ width: `${completionPercentage}%` }}
               />
             </div>
@@ -88,7 +88,7 @@ export function WorkoutCard({
 
         {/* Completion date */}
         {completedAt && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="h-4 w-4"
@@ -108,7 +108,7 @@ export function WorkoutCard({
         {/* Start button */}
         {!isCompleted && onClick && (
           <button
-            className="w-full mt-4 rounded-lg bg-black text-white py-2 px-4 font-medium hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+            className="w-full mt-4 rounded-lg bg-accent text-black py-2 px-4 font-medium hover:bg-accent-hover transition-colors flex items-center justify-center gap-2"
             onClick={(e) => {
               e.stopPropagation()
               onClick()

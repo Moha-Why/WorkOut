@@ -7,6 +7,12 @@ export function registerServiceWorker() {
     return
   }
 
+  // Skip service worker registration in development to avoid redirect issues
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Service Worker registration skipped in development')
+    return
+  }
+
   window.addEventListener('load', async () => {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {

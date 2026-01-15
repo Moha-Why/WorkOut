@@ -26,10 +26,10 @@ export default function Home() {
   }, [isAuthenticated, isLoading, role, router])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-bg-main">
       <div className="flex flex-col items-center gap-4">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300 border-t-black" />
-        <p className="text-gray-600">Loading...</p>
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-border border-t-accent" />
+        <p className="text-gray-400">Loading...</p>
       </div>
     </div>
   )

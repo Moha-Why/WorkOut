@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { registerServiceWorker, setupAutoSync } from '@/lib/pwa/register'
+import { registerServiceWorker } from '@/lib/pwa/register'
 
 export function PWARegister() {
   useEffect(() => {
@@ -9,8 +9,8 @@ export function PWARegister() {
     registerServiceWorker()
 
     // Setup offline sync
-    const { setupAutoSync: setupSync } = require('@/lib/offline/sync')
-    setupSync()
+    const { setupAutoSync } = require('@/lib/offline/sync')
+    setupAutoSync()
   }, [])
 
   return null
