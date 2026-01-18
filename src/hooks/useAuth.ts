@@ -141,20 +141,26 @@ export function useAuth() {
     }
 
     try {
+      if (typeof window !== 'undefined') {
+        window.alert('signIn called - step: init')
+      }
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
       step = 'signInWithPassword'
+      window.alert('step: signInWithPassword - calling supabase')
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password }),
         10000,
         step
       )
+      window.alert('step: signInWithPassword - done')
 
       step = 'checkError'
       if (error) throw error
 
       step = 'checkUser'
       if (data.user) {
+        window.alert('step: fetchProfile - user found')
         step = 'fetchProfile'
         const { data: profile, error: profileError } = await withTimeout(
           supabase
