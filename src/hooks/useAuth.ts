@@ -129,30 +129,47 @@ export function useAuth() {
 
   const signIn = async (email: string, password: string) => {
     const supabase = createClient()
+    let step = 'init'
+
+    const withTimeout = <T>(promise: PromiseLike<T>, ms: number, stepName: string): Promise<T> => {
+      return Promise.race([
+        Promise.resolve(promise),
+        new Promise<T>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout at ${stepName}`)), ms)
+        )
+      ])
+    }
+
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
-      console.log('[signIn] Starting sign in...')
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-      console.log('[signIn] Sign in response:', { user: !!data?.user, error })
+      step = 'signInWithPassword'
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        10000,
+        step
+      )
 
+      step = 'checkError'
       if (error) throw error
 
-      // Fetch profile immediately after sign in
+      step = 'checkUser'
       if (data.user) {
-        console.log('[signIn] Fetching profile...')
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single<Profile>()
-        console.log('[signIn] Profile response:', { profile: !!profile, error: profileError })
+        step = 'fetchProfile'
+        const { data: profile, error: profileError } = await withTimeout(
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .single<Profile>(),
+          10000,
+          step
+        )
 
+        step = 'checkProfileError'
         if (profileError) throw profileError
 
+        step = 'setState'
         setState({
           user: data.user,
           profile,
@@ -162,16 +179,16 @@ export function useAuth() {
         })
       }
 
-      console.log('[signIn] Success!')
+      step = 'done'
       return { success: true, error: null }
     } catch (error) {
-      console.error('Sign in error:', error)
+      const errorWithStep = new Error(`[${step}] ${(error as Error).message || error}`)
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: error as Error,
+        error: errorWithStep,
       }))
-      return { success: false, error: error as Error }
+      return { success: false, error: errorWithStep }
     }
   }
 
