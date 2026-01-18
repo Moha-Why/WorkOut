@@ -23,6 +23,7 @@ export function useAuth() {
   })
 
   useEffect(() => {
+    let isMounted = true
     const supabase = createClient()
 
     const getSession = async () => {
@@ -32,6 +33,8 @@ export function useAuth() {
           error: sessionError,
         } = await supabase.auth.getSession()
 
+        if (!isMounted) return
+
         if (sessionError) throw sessionError
 
         if (session?.user) {
@@ -40,6 +43,8 @@ export function useAuth() {
             .select('*')
             .eq('id', session.user.id)
             .single<Profile>()
+
+          if (!isMounted) return
 
           if (profileError) throw profileError
 
@@ -60,6 +65,7 @@ export function useAuth() {
           })
         }
       } catch (error) {
+        if (!isMounted) return
         console.error('Auth error:', error)
         setState({
           user: null,
@@ -75,6 +81,8 @@ export function useAuth() {
 
     const { data: { subscription } } =
       supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
+        if (!isMounted) return
+
         if (!session?.user) {
           setState({
             user: null,
@@ -86,27 +94,37 @@ export function useAuth() {
           return
         }
 
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single<Profile>()
+        try {
+          const { data: profile, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single<Profile>()
 
-        if (error) {
-          setState(prev => ({ ...prev, error, isLoading: false }))
-          return
+          if (!isMounted) return
+
+          if (error) {
+            setState(prev => ({ ...prev, error, isLoading: false }))
+            return
+          }
+
+          setState({
+            user: session.user,
+            profile,
+            role: profile.role,
+            isLoading: false,
+            error: null,
+          })
+        } catch (error) {
+          if (!isMounted) return
+          setState(prev => ({ ...prev, error: error as Error, isLoading: false }))
         }
-
-        setState({
-          user: session.user,
-          profile,
-          role: profile.role,
-          isLoading: false,
-          error: null,
-        })
       })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signIn = async (email: string, password: string) => {
