@@ -132,20 +132,24 @@ export function useAuth() {
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
+      console.log('[signIn] Starting sign in...')
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
+      console.log('[signIn] Sign in response:', { user: !!data?.user, error })
 
       if (error) throw error
 
       // Fetch profile immediately after sign in
       if (data.user) {
+        console.log('[signIn] Fetching profile...')
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', data.user.id)
           .single<Profile>()
+        console.log('[signIn] Profile response:', { profile: !!profile, error: profileError })
 
         if (profileError) throw profileError
 
@@ -158,6 +162,7 @@ export function useAuth() {
         })
       }
 
+      console.log('[signIn] Success!')
       return { success: true, error: null }
     } catch (error) {
       console.error('Sign in error:', error)
