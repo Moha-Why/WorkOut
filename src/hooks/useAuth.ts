@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { User } from '@supabase/supabase-js'
+import { User, AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { Profile, UserRole } from '@/types'
 
 interface AuthState {
@@ -12,7 +12,6 @@ interface AuthState {
   isLoading: boolean
   error: Error | null
 }
-const supabase = createClient()
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
@@ -23,7 +22,10 @@ export function useAuth() {
     error: null,
   })
 
-      const getSession = async () => {
+  useEffect(() => {
+    const supabase = createClient()
+
+    const getSession = async () => {
       try {
         const {
           data: { session },
@@ -33,7 +35,6 @@ export function useAuth() {
         if (sessionError) throw sessionError
 
         if (session?.user) {
-          // Fetch user profile
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
@@ -70,10 +71,10 @@ export function useAuth() {
       }
     }
 
-  useEffect(() => {
     getSession()
+
     const { data: { subscription } } =
-      supabase.auth.onAuthStateChange(async (_event, session) => {
+      supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
         if (!session?.user) {
           setState({
             user: null,
@@ -92,7 +93,7 @@ export function useAuth() {
           .single<Profile>()
 
         if (error) {
-          setState(prev => ({ ...prev, error }))
+          setState(prev => ({ ...prev, error, isLoading: false }))
           return
         }
 
@@ -109,17 +110,17 @@ export function useAuth() {
   }, [])
 
   const signIn = async (email: string, password: string) => {
+    const supabase = createClient()
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) throw error
 
-      // Profile will be fetched by onAuthStateChange
       return { success: true, error: null }
     } catch (error) {
       console.error('Sign in error:', error)
@@ -138,6 +139,7 @@ export function useAuth() {
     name: string,
     role: UserRole = 'user'
   ) => {
+    const supabase = createClient()
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -149,7 +151,6 @@ export function useAuth() {
       if (authError) throw authError
       if (!authData.user) throw new Error('User creation failed')
 
-      // Create profile
       const { error: profileError } = await supabase.from('profiles').insert({
         id: authData.user.id,
         email,
@@ -173,6 +174,7 @@ export function useAuth() {
   }
 
   const signOut = async () => {
+    const supabase = createClient()
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -200,6 +202,7 @@ export function useAuth() {
   }
 
   const updateProfile = async (updates: Partial<Profile>) => {
+    const supabase = createClient()
     try {
       if (!state.user) throw new Error('No user logged in')
 
@@ -210,7 +213,6 @@ export function useAuth() {
 
       if (error) throw error
 
-      // Refresh profile
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')

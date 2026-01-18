@@ -68,6 +68,16 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // Skip Next.js chunks - always fetch from network to avoid stale cache issues
+  if (url.pathname.startsWith('/_next/')) {
+    return
+  }
+
+  // Skip Supabase requests - let them go directly to network
+  if (url.hostname.includes('supabase')) {
+    return
+  }
+
   // API requests - Network first, cache fallback
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
