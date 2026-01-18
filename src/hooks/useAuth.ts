@@ -114,12 +114,31 @@ export function useAuth() {
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (error) throw error
+
+      // Fetch profile immediately after sign in
+      if (data.user) {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single<Profile>()
+
+        if (profileError) throw profileError
+
+        setState({
+          user: data.user,
+          profile,
+          role: profile.role,
+          isLoading: false,
+          error: null,
+        })
+      }
 
       return { success: true, error: null }
     } catch (error) {

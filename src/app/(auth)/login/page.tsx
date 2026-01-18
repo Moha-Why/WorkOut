@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, isAuthenticated, role, isLoading: authLoading } = useAuth()
 
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [formData, setFormData] = useState({
@@ -21,6 +21,19 @@ export default function LoginPage() {
   })
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && role) {
+      if (role === 'user') {
+        router.push('/user')
+      } else if (role === 'coach') {
+        router.push('/coach/exercises')
+      } else if (role === 'admin') {
+        router.push('/admin/coaches')
+      }
+    }
+  }, [authLoading, isAuthenticated, role, router])
 
   // Check if offline and redirect to offline page
   useEffect(() => {
@@ -53,11 +66,10 @@ export default function LoginPage() {
           formData.password
         )
 
-        if (success) {
-          router.push('/')
-        } else {
+        if (!success) {
           setError(error?.message || 'Login failed')
         }
+        // Redirect is handled by useEffect when auth state changes
       } else {
         // Signup
         if (formData.password !== formData.confirmPassword) {
