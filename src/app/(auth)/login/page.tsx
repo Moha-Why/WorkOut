@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/hooks/useAuth'
@@ -21,6 +21,25 @@ export default function LoginPage() {
   })
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Check if offline and redirect to offline page
+  useEffect(() => {
+    const checkOffline = () => {
+      if (!navigator.onLine) {
+        router.push('/offline')
+      }
+    }
+
+    // Check initial state
+    checkOffline()
+
+    // Listen for offline events
+    window.addEventListener('offline', checkOffline)
+
+    return () => {
+      window.removeEventListener('offline', checkOffline)
+    }
+  }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

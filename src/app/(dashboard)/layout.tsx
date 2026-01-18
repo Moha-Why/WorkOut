@@ -3,6 +3,7 @@
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { OfflineIndicator } from '@/components/ui/OfflineIndicator'
+import { InstallPWAPrompt } from '@/components/offline/InstallPWAPrompt'
 import { useAuth } from '@/hooks/useAuth'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -15,12 +16,36 @@ export default function DashboardLayout({
   const { isAuthenticated, isLoading, role } = useAuth()
   const router = useRouter()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
+
+  // Check offline status
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      setIsOffline(!navigator.onLine)
+    }
+
+    // Set initial state
+    updateOnlineStatus()
+
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    }
+  }, [])
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login')
+      // If offline, redirect to offline page instead of login
+      if (isOffline) {
+        router.push('/offline')
+      } else {
+        router.push('/login')
+      }
     }
-  }, [isAuthenticated, isLoading, router])
+  }, [isAuthenticated, isLoading, isOffline, router])
 
   if (isLoading) {
     return (
@@ -50,6 +75,7 @@ export default function DashboardLayout({
         </main>
       </div>
       <OfflineIndicator />
+      <InstallPWAPrompt />
     </div>
   )
 }

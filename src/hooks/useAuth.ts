@@ -42,6 +42,11 @@ export function useAuth() {
 
           if (profileError) throw profileError
 
+          // Store user ID for offline access
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('offline_user_id', session.user.id)
+          }
+
           setState({
             user: session.user,
             profile,
@@ -94,6 +99,11 @@ export function useAuth() {
         if (error) {
           setState(prev => ({ ...prev, error }))
           return
+        }
+
+        // Store user ID for offline access
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('offline_user_id', session.user.id)
         }
 
         setState({

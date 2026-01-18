@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Model, { Muscle, IExerciseData } from 'react-body-highlighter'
 import { MuscleGroup } from '@/types'
-import { getMuscleColor, groupMusclesByCategory } from '@/lib/utils/muscles'
 import { createClient } from '@/lib/supabase/client'
 
 interface MuscleModelProps {
@@ -12,6 +12,68 @@ interface MuscleModelProps {
   interactive?: boolean
   onMuscleClick?: (muscleId: string) => void
   className?: string
+}
+
+// Map our muscle IDs to react-body-highlighter muscle names
+const MUSCLE_ID_MAP: Record<string, Muscle> = {
+  // Front muscles
+  'chest': 'chest',
+  'pectorals': 'chest',
+  'abs': 'abs',
+  'abdominals': 'abs',
+  'core': 'abs',
+  'obliques': 'obliques',
+  'biceps': 'biceps',
+  'forearms': 'forearm',
+  'forearm': 'forearm',
+  'front-delts': 'front-deltoids',
+  'front-deltoids': 'front-deltoids',
+  'shoulders': 'front-deltoids',
+  'deltoids': 'front-deltoids',
+  'quadriceps': 'quadriceps',
+  'quads': 'quadriceps',
+  'adductors': 'adductor',
+  'adductor': 'adductor',
+
+  // Back muscles
+  'back': 'upper-back',
+  'upper-back': 'upper-back',
+  'lats': 'upper-back',
+  'latissimus': 'upper-back',
+  'traps': 'trapezius',
+  'trapezius': 'trapezius',
+  'rhomboids': 'upper-back',
+  'lower-back': 'lower-back',
+  'erector-spinae': 'lower-back',
+  'hamstrings': 'hamstring',
+  'hamstring': 'hamstring',
+  'glutes': 'gluteal',
+  'gluteus': 'gluteal',
+  'gluteal': 'gluteal',
+  'calves': 'calves',
+  'triceps': 'triceps',
+  'rear-delts': 'back-deltoids',
+  'back-deltoids': 'back-deltoids',
+}
+
+// Reverse map for click handling
+const REVERSE_MUSCLE_MAP: Record<string, string> = {
+  'chest': 'chest',
+  'abs': 'abs',
+  'obliques': 'obliques',
+  'biceps': 'biceps',
+  'forearm': 'forearms',
+  'front-deltoids': 'shoulders',
+  'quadriceps': 'quadriceps',
+  'adductor': 'adductors',
+  'upper-back': 'back',
+  'trapezius': 'traps',
+  'lower-back': 'lower-back',
+  'hamstring': 'hamstrings',
+  'gluteal': 'glutes',
+  'calves': 'calves',
+  'triceps': 'triceps',
+  'back-deltoids': 'rear-delts',
 }
 
 export function MuscleModel({
@@ -47,9 +109,50 @@ export function MuscleModel({
     fetchMuscles()
   }, [])
 
-  const groupedMuscles = groupMusclesByCategory(muscles)
-  const currentMuscles =
-    selectedView === 'front' ? groupedMuscles.front : groupedMuscles.back
+  // Convert our muscle IDs to react-body-highlighter format
+  const mapMuscleId = (id: string): Muscle | null => {
+    return MUSCLE_ID_MAP[id.toLowerCase()] || null
+  }
+
+  // Build exercise data for the highlighter
+  const buildExerciseData = (): IExerciseData[] => {
+    const data: IExerciseData[] = []
+
+    // Add target muscles (will show with higher intensity)
+    if (targetMuscles.length > 0) {
+      const mappedMuscles = targetMuscles
+        .map(mapMuscleId)
+        .filter((m): m is Muscle => m !== null)
+
+      if (mappedMuscles.length > 0) {
+        data.push({
+          name: 'Target',
+          muscles: mappedMuscles,
+        })
+        // Add again for higher intensity (frequency = 2)
+        data.push({
+          name: 'Target2',
+          muscles: mappedMuscles,
+        })
+      }
+    }
+
+    // Add assisting muscles (lower intensity)
+    if (assistingMuscles.length > 0) {
+      const mappedMuscles = assistingMuscles
+        .map(mapMuscleId)
+        .filter((m): m is Muscle => m !== null)
+
+      if (mappedMuscles.length > 0) {
+        data.push({
+          name: 'Assisting',
+          muscles: mappedMuscles,
+        })
+      }
+    }
+
+    return data
+  }
 
   const handleMuscleClick = (muscleId: string) => {
     if (interactive && onMuscleClick) {
@@ -57,10 +160,32 @@ export function MuscleModel({
     }
   }
 
+  const handleModelClick = ({ muscle }: { muscle: string }) => {
+    if (!interactive) return
+
+    // Map back to our muscle ID system
+    const ourMuscleId = REVERSE_MUSCLE_MAP[muscle] || muscle
+
+    // Find matching muscle in our database
+    const matchingMuscle = muscles.find(
+      (m) => m.id.toLowerCase() === ourMuscleId.toLowerCase() ||
+             mapMuscleId(m.id) === muscle
+    )
+
+    if (matchingMuscle) {
+      handleMuscleClick(matchingMuscle.id)
+    }
+  }
+
+  // Get all muscles for the current view for the muscle list
+  const currentViewMuscles = muscles.filter((muscle) => {
+    return muscle.category === selectedView || muscle.category === 'core'
+  })
+
   if (isLoading) {
     return (
       <div className={`flex items-center justify-center ${className}`}>
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-black" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-orange-500" />
       </div>
     )
   }
@@ -74,8 +199,8 @@ export function MuscleModel({
             onClick={() => setSelectedView('front')}
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               selectedView === 'front'
-                ? 'bg-accent text-black'
-                : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
+                ? 'bg-orange-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
             Front
@@ -85,8 +210,8 @@ export function MuscleModel({
             onClick={() => setSelectedView('back')}
             className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
               selectedView === 'back'
-                ? 'bg-accent text-black'
-                : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
+                ? 'bg-orange-500 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
           >
             Back
@@ -94,103 +219,68 @@ export function MuscleModel({
         </div>
       )}
 
-      <div className="relative">
-        <svg
-          viewBox="0 0 400 600"
-          className="w-full h-auto"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          {/* Body outline */}
-          <path
-            d="M200,80 L200,50 C200,40 190,30 180,30 L220,30 C210,30 200,40 200,50 L200,80"
-            fill="#f3f4f6"
-            stroke="#9ca3af"
-            strokeWidth="2"
-          />
-
-          {/* Render muscle groups */}
-          {currentMuscles.map((muscle) => {
-            const color = getMuscleColor(
-              muscle.id,
-              targetMuscles,
-              assistingMuscles
-            )
-            const isTarget = targetMuscles.includes(muscle.id)
-            const isAssisting = assistingMuscles?.includes(muscle.id)
-
-            return (
-              <g key={muscle.id}>
-                <path
-                  d={muscle.svg_path}
-                  className={`transition-all ${color} ${
-                    interactive ? 'cursor-pointer hover:opacity-80' : ''
-                  }`}
-                  stroke="#1f2937"
-                  strokeWidth={isTarget ? '3' : '1'}
-                  onClick={() => handleMuscleClick(muscle.id)}
-                  style={{
-                    strokeDasharray: isAssisting ? '5,5' : 'none',
-                  }}
-                />
-                {/* Label on hover */}
-                <title>{muscle.name}</title>
-              </g>
-            )
-          })}
-        </svg>
-
-        {/* Legend */}
-        {(targetMuscles.length > 0 || assistingMuscles.length > 0) && (
-          <div className="mt-2 flex flex-wrap gap-4 text-xs">
-            {targetMuscles.length > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="h-4 w-4 rounded bg-red-500/80 border-2 border-gray-900" />
-                <span className="text-gray-400">Target Muscles</span>
-              </div>
-            )}
-            {assistingMuscles.length > 0 && (
-              <div className="flex items-center gap-2">
-                <div
-                  className="h-4 w-4 rounded bg-blue-400/60 border border-gray-900"
-                  style={{
-                    backgroundImage:
-                      'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(59, 130, 246, 0.6) 2px, rgba(59, 130, 246, 0.6) 4px)',
-                  }}
-                />
-                <span className="text-gray-400">Assisting Muscles</span>
-              </div>
-            )}
-          </div>
-        )}
+      <div className="relative flex justify-center">
+        <Model
+          data={buildExerciseData()}
+          style={{ width: '15rem', padding: '1rem' }}
+          onClick={interactive ? handleModelClick : undefined}
+          type={selectedView === 'front' ? 'anterior' : 'posterior'}
+          highlightedColors={['#fdba74', '#f97316', '#ea580c']}
+        />
       </div>
 
-      {/* Muscle list */}
+      {/* Legend */}
+      {(targetMuscles.length > 0 || assistingMuscles.length > 0) && (
+        <div className="mt-4 flex flex-wrap justify-center gap-6 text-sm">
+          {targetMuscles.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 rounded" style={{ backgroundColor: '#ea580c' }} />
+              <span className="text-gray-600 font-medium">Target</span>
+            </div>
+          )}
+          {assistingMuscles.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="h-4 w-4 rounded" style={{ backgroundColor: '#fdba74' }} />
+              <span className="text-gray-600 font-medium">Assisting</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Muscle list for interactive mode */}
       {interactive && (
-        <div className="mt-2 space-y-2">
-          {currentMuscles.map((muscle) => {
-            const isSelected =
-              targetMuscles.includes(muscle.id) ||
-              assistingMuscles.includes(muscle.id)
-            return (
-              <button
-                key={muscle.id}
-                type="button"
-                onClick={() => handleMuscleClick(muscle.id)}
-                className={`w-full rounded-lg px-4 py-2 text-left text-sm transition-colors ${
-                  isSelected
-                    ? 'bg-accent text-black'
-                    : 'bg-bg-hover text-text-primary hover:bg-bg-secondary'
-                }`}
-              >
-                {muscle.name}
-                {muscle.name_ar && (
-                  <span className="mr-2 text-xs opacity-75">
-                    ({muscle.name_ar})
-                  </span>
-                )}
-              </button>
-            )
-          })}
+        <div className="mt-4 space-y-2 max-h-[300px] overflow-y-auto">
+          <p className="text-sm font-medium text-gray-500 mb-2">
+            {selectedView === 'front' ? 'Front' : 'Back'} Muscles:
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {currentViewMuscles.map((muscle) => {
+              const isTarget = targetMuscles.includes(muscle.id)
+              const isAssisting = assistingMuscles.includes(muscle.id)
+
+              return (
+                <button
+                  key={muscle.id}
+                  type="button"
+                  onClick={() => handleMuscleClick(muscle.id)}
+                  className={`rounded-lg px-3 py-2 text-left text-sm transition-all ${
+                    isTarget
+                      ? 'bg-orange-600 text-white shadow-md'
+                      : isAssisting
+                      ? 'bg-orange-300 text-gray-800 shadow-md'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <span className="block font-medium">{muscle.name}</span>
+                  {muscle.name_ar && (
+                    <span className="block text-xs opacity-80">
+                      {muscle.name_ar}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>

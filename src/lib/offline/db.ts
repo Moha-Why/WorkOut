@@ -154,8 +154,31 @@ export async function savePendingProgress(progress: PendingProgress) {
 
 export async function getPendingProgress(): Promise<PendingProgress[]> {
   const db = await getDB()
-  const index = db.transaction('pending_progress').store.index('by-synced')
-  return index.getAll(null)
+  return db.getAll('pending_progress')
+}
+
+export async function getUnsyncedProgress(): Promise<PendingProgress[]> {
+  const db = await getDB()
+  const all = await db.getAll('pending_progress')
+  return all.filter(p => !p.synced)
+}
+
+export async function getCompletedExerciseIds(userId: string): Promise<Set<string>> {
+  const db = await getDB()
+  const all = await db.getAll('pending_progress')
+  const exerciseIds = all
+    .filter(p => p.user_id === userId && p.type === 'exercise')
+    .map(p => p.entity_id)
+  return new Set(exerciseIds)
+}
+
+export async function getCompletedWorkoutIds(userId: string): Promise<Set<string>> {
+  const db = await getDB()
+  const all = await db.getAll('pending_progress')
+  const workoutIds = all
+    .filter(p => p.user_id === userId && p.type === 'workout')
+    .map(p => p.entity_id)
+  return new Set(workoutIds)
 }
 
 export async function markProgressSynced(id: string) {

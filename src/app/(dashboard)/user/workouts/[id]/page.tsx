@@ -10,7 +10,8 @@ import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { savePendingProgress } from '@/lib/offline/db'
+import { savePendingProgress, getWorkout as getOfflineWorkout } from '@/lib/offline/db'
+import { isOnline } from '@/lib/offline/sync'
 import { Card, CardContent } from '@/components/ui/Card'
 
 export default function WorkoutPlayerPage() {
@@ -24,6 +25,7 @@ export default function WorkoutPlayerPage() {
   const [completedExercises, setCompletedExercises] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
   const [workoutCompletedThisSession, setWorkoutCompletedThisSession] = useState(false)
+  const [isOfflineMode, setIsOfflineMode] = useState(false)
 
   const {
     currentExercise,
@@ -46,20 +48,55 @@ export default function WorkoutPlayerPage() {
     const fetchWorkout = async () => {
       if (!workoutId || !profile) return
 
+      const online = isOnline()
+
+      // Try to load from offline cache first if offline
+      if (!online) {
+        try {
+          const offlineWorkout = await getOfflineWorkout(workoutId)
+          if (offlineWorkout) {
+            setWorkout(offlineWorkout.data)
+            setExercises(offlineWorkout.exercises)
+            setIsOfflineMode(true)
+            setIsLoading(false)
+            return
+          }
+        } catch (error) {
+          console.error('Error loading offline workout:', error)
+        }
+      }
+
+      // Online: fetch from database
       const supabase = createClient()
 
       // Fetch workout with exercises
-      const { data: workoutData } = await supabase
+      const { data: workoutData, error: workoutError } = await supabase
         .from('workouts')
         .select('*')
         .eq('id', workoutId)
         .single()
 
-      const { data: exerciseData } = await supabase
+      const { data: exerciseData, error: exerciseError } = await supabase
         .from('exercises')
         .select('*')
         .eq('workout_id', workoutId)
         .order('order_index', { ascending: true })
+
+      // If online fetch fails, try offline cache as fallback
+      if ((workoutError || exerciseError) && !workoutData) {
+        try {
+          const offlineWorkout = await getOfflineWorkout(workoutId)
+          if (offlineWorkout) {
+            setWorkout(offlineWorkout.data)
+            setExercises(offlineWorkout.exercises)
+            setIsOfflineMode(true)
+            setIsLoading(false)
+            return
+          }
+        } catch (error) {
+          console.error('Error loading offline workout:', error)
+        }
+      }
 
       // Check if workout was already completed today
       const today = new Date()
@@ -80,6 +117,7 @@ export default function WorkoutPlayerPage() {
 
       setWorkout(workoutData)
       setExercises(exerciseData || [])
+      setIsOfflineMode(false)
       setIsLoading(false)
     }
 
@@ -220,6 +258,14 @@ export default function WorkoutPlayerPage() {
         <div className="flex items-center gap-2 mt-2">
           <Badge variant="info">Week {workout.week_number}</Badge>
           <Badge variant="default">Day {workout.day_number}</Badge>
+          {isOfflineMode && (
+            <Badge variant="warning" className="flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Offline
+            </Badge>
+          )}
         </div>
       </div>
 

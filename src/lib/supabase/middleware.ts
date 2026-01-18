@@ -31,15 +31,24 @@ export async function updateSession(request: NextRequest) {
   // supabase.auth.getUser(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Try to get user, but handle network errors gracefully for offline support
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch (error) {
+    // Network error - likely offline. Allow request through.
+    // Client-side will detect offline state and redirect to /offline
+    console.log('[Middleware] Network error checking auth, allowing request through')
+    return supabaseResponse
+  }
 
   if (
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/forgot-password') &&
     !request.nextUrl.pathname.startsWith('/reset-password') &&
+    !request.nextUrl.pathname.startsWith('/offline') &&
     !request.nextUrl.pathname.startsWith('/_next') &&
     !request.nextUrl.pathname.startsWith('/api')
   ) {

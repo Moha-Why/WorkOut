@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import {
-  getPendingProgress,
+  getUnsyncedProgress,
   markProgressSynced,
   deletePendingProgress,
 } from './db'
@@ -30,7 +30,7 @@ export async function syncPendingProgress(): Promise<SyncStatus> {
 
   try {
     const supabase = createClient()
-    const pending = await getPendingProgress()
+    const pending = await getUnsyncedProgress()
 
     syncStatus.pending_count = pending.length
 
@@ -106,7 +106,7 @@ export async function syncPendingProgress(): Promise<SyncStatus> {
     }
 
     // Update pending count
-    const remainingPending = await getPendingProgress()
+    const remainingPending = await getUnsyncedProgress()
     syncStatus.pending_count = remainingPending.length
 
     syncStatus.last_sync = new Date()

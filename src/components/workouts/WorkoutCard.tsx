@@ -1,30 +1,52 @@
 'use client'
 
-import { Workout, WorkoutWithProgress } from '@/types'
+import { useState, useEffect } from 'react'
+import { Workout, WorkoutWithProgress, Exercise } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { formatSmartDate } from '@/lib/utils/date'
+import { getWorkout } from '@/lib/offline/db'
 
 interface WorkoutCardProps {
   workout: Workout | WorkoutWithProgress
+  exercises?: Exercise[]
   exerciseCount?: number
   isCompleted?: boolean
   completionPercentage?: number
   completedAt?: string
   onClick?: () => void
+  showDownload?: boolean
   className?: string
 }
 
 export function WorkoutCard({
   workout,
+  exercises = [],
   exerciseCount = 0,
   isCompleted = false,
   completionPercentage = 0,
   completedAt,
   onClick,
+  showDownload = false,
   className = '',
 }: WorkoutCardProps) {
   const hasProgress = 'is_completed' in workout
+  const [isDownloaded, setIsDownloaded] = useState(false)
+
+  useEffect(() => {
+    if (showDownload) {
+      checkIfDownloaded()
+    }
+  }, [workout.id, showDownload])
+
+  const checkIfDownloaded = async () => {
+    try {
+      const cached = await getWorkout(workout.id)
+      setIsDownloaded(!!cached)
+    } catch (error) {
+      console.error('Error checking download status:', error)
+    }
+  }
 
   return (
     <Card
@@ -50,22 +72,33 @@ export function WorkoutCard({
             </CardDescription>
           </div>
 
-          {isCompleted && (
-            <div className="bg-success text-white rounded-full p-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Downloaded indicator */}
+            {showDownload && isDownloaded && (
+              <div className="text-green-500" title="Available offline">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+            )}
+
+            {isCompleted && (
+              <div className="bg-success text-white rounded-full p-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-5 w-5"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+            )}
+          </div>
         </div>
       </CardHeader>
 

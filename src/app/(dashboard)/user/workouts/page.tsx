@@ -8,6 +8,10 @@ import { Workout, Exercise, Program } from '@/types'
 import { WorkoutCard } from '@/components/workouts/WorkoutCard'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Toast } from '@/components/ui/Toast'
+import { downloadWorkouts } from '@/lib/offline/download'
+import { getAllWorkouts } from '@/lib/offline/db'
 import Link from 'next/link'
 
 interface WorkoutWithExercises extends Workout {
@@ -25,6 +29,13 @@ export default function UserWorkoutsPage() {
   const [programName, setProgramName] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [availablePrograms, setAvailablePrograms] = useState<Program[]>([])
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadedWorkoutIds, setDownloadedWorkoutIds] = useState<Set<string>>(new Set())
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
+    message: '',
+    type: 'success',
+    isOpen: false,
+  })
 
   useEffect(() => {
     const fetchWorkouts = async () => {
@@ -117,6 +128,71 @@ export default function UserWorkoutsPage() {
     return () => clearInterval(interval)
   }, [profile, programId, router])
 
+  // Check which workouts are already downloaded
+  useEffect(() => {
+    const checkDownloaded = async () => {
+      try {
+        const downloaded = await getAllWorkouts()
+        setDownloadedWorkoutIds(new Set(downloaded.map((w) => w.id)))
+      } catch (error) {
+        console.error('Error checking downloaded workouts:', error)
+      }
+    }
+    checkDownloaded()
+  }, [workouts])
+
+  const handleDownloadAll = async () => {
+    if (isDownloading || workouts.length === 0) return
+
+    setIsDownloading(true)
+    try {
+      const workoutsToDownload = workouts
+        .filter((w) => !downloadedWorkoutIds.has(w.id))
+        .map((w) => ({ workout: w, exercises: w.exercises }))
+
+      if (workoutsToDownload.length === 0) {
+        setToast({
+          message: 'All workouts are already downloaded',
+          type: 'info',
+          isOpen: true,
+        })
+        setIsDownloading(false)
+        return
+      }
+
+      const { success, failed } = await downloadWorkouts(workoutsToDownload)
+
+      // Refresh downloaded list
+      const downloaded = await getAllWorkouts()
+      setDownloadedWorkoutIds(new Set(downloaded.map((w) => w.id)))
+
+      if (failed === 0) {
+        setToast({
+          message: `Downloaded ${success} workouts for offline use`,
+          type: 'success',
+          isOpen: true,
+        })
+      } else {
+        setToast({
+          message: `Downloaded ${success} workouts, ${failed} failed`,
+          type: 'error',
+          isOpen: true,
+        })
+      }
+    } catch (error) {
+      console.error('Error downloading workouts:', error)
+      setToast({
+        message: 'Error downloading workouts',
+        type: 'error',
+        isOpen: true,
+      })
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  const notDownloadedCount = workouts.filter((w) => !downloadedWorkoutIds.has(w.id)).length
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -184,14 +260,52 @@ export default function UserWorkoutsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <Link href="/user" className="text-sm text-gray-400 hover:text-accent mb-2 inline-block">
-          ← Back to Dashboard
-        </Link>
-        <h1 className="text-3xl font-bold text-text-primary">{programName}</h1>
-        <p className="text-gray-400 mt-1">
-          {workouts.length} {workouts.length === 1 ? 'workout' : 'workouts'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <Link href="/user" className="text-sm text-gray-400 hover:text-accent mb-2 inline-block">
+            ← Back to Dashboard
+          </Link>
+          <h1 className="text-3xl font-bold text-text-primary">{programName}</h1>
+          <p className="text-gray-400 mt-1">
+            {workouts.length} {workouts.length === 1 ? 'workout' : 'workouts'}
+            {downloadedWorkoutIds.size > 0 && (
+              <span className="ml-2 text-green-500">
+                ({downloadedWorkoutIds.size} downloaded)
+              </span>
+            )}
+          </p>
+        </div>
+
+        {/* Download All Button */}
+        {workouts.length > 0 && (
+          <Button
+            onClick={handleDownloadAll}
+            disabled={isDownloading || notDownloadedCount === 0}
+            variant={notDownloadedCount === 0 ? 'outline' : 'primary'}
+            className={notDownloadedCount === 0 ? 'text-green-600 border-green-600' : ''}
+          >
+            {isDownloading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Downloading...
+              </>
+            ) : notDownloadedCount === 0 ? (
+              <>
+                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                All Downloaded
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download All ({notDownloadedCount})
+              </>
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Workouts by week */}
@@ -236,8 +350,10 @@ export default function UserWorkoutsPage() {
                     >
                       <WorkoutCard
                         workout={workout}
+                        exercises={workout.exercises}
                         exerciseCount={workout.exercises.length}
                         isCompleted={workout.is_completed || false}
+                        showDownload={true}
                       />
                     </Link>
                   ))}
@@ -245,6 +361,14 @@ export default function UserWorkoutsPage() {
             </div>
           ))
       )}
+
+      {/* Toast Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isOpen={toast.isOpen}
+        onClose={() => setToast({ ...toast, isOpen: false })}
+      />
     </div>
   )
 }
