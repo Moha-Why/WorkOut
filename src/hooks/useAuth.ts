@@ -127,8 +127,8 @@ export function useAuth() {
     }
   }, [])
 
+  const supabase = createClient()
   const signIn = async (email: string, password: string) => {
-    const supabase = createClient()
     let step = 'init'
 
     const withTimeout = <T>(promise: PromiseLike<T>, ms: number, stepName: string): Promise<T> => {
