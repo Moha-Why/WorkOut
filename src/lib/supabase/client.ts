@@ -14,8 +14,8 @@ export function createClient() {
           storageKey: 'workout-auth',
           storage: typeof window !== 'undefined' ? window.localStorage : undefined,
           autoRefreshToken: true,
-          detectSessionInUrl: true,
-          flowType: 'pkce',
+          detectSessionInUrl: false,
+          flowType: 'implicit',
         },
       }
     )
