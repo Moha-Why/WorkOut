@@ -1,45 +1,32 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Badge } from './Badge'
-import { isOnline as checkIsOnline, onNetworkChange, getSyncStatus, syncPendingProgress } from '@/lib/offline/sync'
-import { SyncStatus } from '@/types/offline'
 
 export function OfflineIndicator() {
   const [isOnline, setIsOnline] = useState(true)
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [showReconnectedBanner, setShowReconnectedBanner] = useState(false)
 
   useEffect(() => {
-    // Check initial status
-    setIsOnline(checkIsOnline())
-    setSyncStatus(getSyncStatus())
+    setIsOnline(navigator.onLine)
 
-    // Listen for online/offline events
-    const unsubscribe = onNetworkChange((online) => {
-      setIsOnline(online)
+    const handleOnline = () => {
+      setIsOnline(true)
+      setShowReconnectedBanner(true)
+      setTimeout(() => setShowReconnectedBanner(false), 3000)
+    }
 
-      if (online) {
-        // Show reconnected banner
-        setShowReconnectedBanner(true)
-        // Sync and hide banner after delay
-        syncPendingProgress().then(setSyncStatus)
-        setTimeout(() => setShowReconnectedBanner(false), 3000)
-      }
-    })
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
 
-    // Periodic sync status update
-    const interval = setInterval(() => {
-      setSyncStatus(getSyncStatus())
-    }, 10000)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
 
     return () => {
-      unsubscribe()
-      clearInterval(interval)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
     }
   }, [])
-
-  const pendingCount = syncStatus?.pending_count || 0
 
   return (
     <>
@@ -62,18 +49,8 @@ export function OfflineIndicator() {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
-            Back online - Syncing your progress...
+            Back online!
           </div>
-        </div>
-      )}
-
-      {/* Bottom corner indicator for pending syncs */}
-      {isOnline && !showReconnectedBanner && pendingCount > 0 && (
-        <div className="fixed bottom-4 right-4 z-40">
-          <Badge variant="info" className="flex items-center gap-2 px-3 py-2 shadow-lg">
-            <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
-            <span>{syncStatus?.is_syncing ? 'Syncing...' : `${pendingCount} pending`}</span>
-          </Badge>
         </div>
       )}
     </>

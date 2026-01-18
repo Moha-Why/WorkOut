@@ -7,10 +7,6 @@ export function PWARegister() {
   useEffect(() => {
     // Register service worker
     registerServiceWorker()
-
-    // Setup offline sync
-    const { setupAutoSync } = require('@/lib/offline/sync')
-    setupAutoSync()
   }, [])
 
   return null

@@ -1,10 +1,8 @@
 'use client'
 
 import { useAuth } from '@/hooks/useAuth'
-import { useOfflineSync } from '@/hooks/useOfflineSync'
 import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface HeaderProps {
   onMenuClick?: () => void
@@ -12,8 +10,23 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const { profile, signOut } = useAuth()
-  const { isOnline, hasPendingItems, sync } = useOfflineSync()
   const [showMenu, setShowMenu] = useState(false)
+  const [isOnline, setIsOnline] = useState(true)
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine)
+
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
 
   const handleSignOut = async () => {
     await signOut()
@@ -50,23 +63,13 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         {/* Right side */}
         <div className="flex items-center gap-4">
-          {/* Sync status */}
+          {/* Online status */}
           <div className="hidden md:flex items-center gap-2">
             {!isOnline && (
               <Badge variant="warning" className="flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full bg-accent" />
                 Offline
               </Badge>
-            )}
-            {hasPendingItems && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => sync()}
-                className="text-xs"
-              >
-                Sync Now
-              </Button>
             )}
           </div>
 

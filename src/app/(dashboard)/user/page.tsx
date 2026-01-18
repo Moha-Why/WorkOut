@@ -76,11 +76,6 @@ export default function UserDashboard() {
     }
 
     fetchData()
-
-    // Set up an interval to refresh data periodically (every 10 seconds)
-    const interval = setInterval(fetchData, 10000)
-
-    return () => clearInterval(interval)
   }, [profile])
 
   if (isLoading) {

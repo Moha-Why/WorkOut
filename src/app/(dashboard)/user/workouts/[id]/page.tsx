@@ -10,8 +10,7 @@ import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { savePendingProgress, getWorkout as getOfflineWorkout } from '@/lib/offline/db'
-import { isOnline } from '@/lib/offline/sync'
+import { getWorkout as getOfflineWorkout } from '@/lib/offline/db'
 import { Card, CardContent } from '@/components/ui/Card'
 
 export default function WorkoutPlayerPage() {
@@ -48,7 +47,7 @@ export default function WorkoutPlayerPage() {
     const fetchWorkout = async () => {
       if (!workoutId || !profile) return
 
-      const online = isOnline()
+      const online = typeof navigator !== 'undefined' ? navigator.onLine : true
 
       // Try to load from offline cache first if offline
       if (!online) {
@@ -130,45 +129,22 @@ export default function WorkoutPlayerPage() {
     // Add to completed set
     setCompletedExercises(prev => new Set(prev).add(exerciseId))
 
+    // Don't save progress in offline mode
+    if (isOfflineMode) return
+
     const supabase = createClient()
     const completedAt = new Date().toISOString()
 
     try {
-      // Try to save to database first
-      const { error } = await supabase
+      await supabase
         .from('user_exercise_progress')
         .insert({
           user_id: profile.id,
           exercise_id: exerciseId,
           completed_at: completedAt,
-          synced: true,
         } as never)
-
-      if (error) {
-        console.error('Error saving exercise progress:', error)
-        // Fallback to offline storage if database save fails
-        await savePendingProgress({
-          id: `${profile.id}_${exerciseId}_${Date.now()}`,
-          type: 'exercise',
-          user_id: profile.id,
-          entity_id: exerciseId,
-          completed_at: Date.now(),
-          synced: false,
-          retry_count: 0,
-        })
-      }
     } catch (err) {
       console.error('Failed to save progress:', err)
-      // Fallback to offline storage
-      await savePendingProgress({
-        id: `${profile.id}_${exerciseId}_${Date.now()}`,
-        type: 'exercise',
-        user_id: profile.id,
-        entity_id: exerciseId,
-        completed_at: Date.now(),
-        synced: false,
-        retry_count: 0,
-      })
     }
   }
 
@@ -178,45 +154,22 @@ export default function WorkoutPlayerPage() {
     // Mark as completed in this session to prevent duplicate submissions
     setWorkoutCompletedThisSession(true)
 
+    // Don't save progress in offline mode
+    if (isOfflineMode) return
+
     const supabase = createClient()
     const completedAt = new Date().toISOString()
 
     try {
-      // Try to save to database first
-      const { error } = await supabase
+      await supabase
         .from('user_workout_progress')
         .insert({
           user_id: profile.id,
           workout_id: workoutId,
           completed_at: completedAt,
-          synced: true,
         } as never)
-
-      if (error) {
-        console.error('Error saving workout progress:', error)
-        // Fallback to offline storage if database save fails
-        await savePendingProgress({
-          id: `${profile.id}_${workoutId}_${Date.now()}`,
-          type: 'workout',
-          user_id: profile.id,
-          entity_id: workoutId,
-          completed_at: Date.now(),
-          synced: false,
-          retry_count: 0,
-        })
-      }
     } catch (err) {
       console.error('Failed to save progress:', err)
-      // Fallback to offline storage
-      await savePendingProgress({
-        id: `${profile.id}_${workoutId}_${Date.now()}`,
-        type: 'workout',
-        user_id: profile.id,
-        entity_id: workoutId,
-        completed_at: Date.now(),
-        synced: false,
-        retry_count: 0,
-      })
     }
 
     // Navigate back after a short delay
@@ -402,8 +355,11 @@ export default function WorkoutPlayerPage() {
                 onClick={completeExercise}
                 variant="primary"
                 className="w-full"
+                disabled={isOfflineMode}
               >
-                {currentIndex === totalExercises - 1
+                {isOfflineMode
+                  ? 'Go online to complete'
+                  : currentIndex === totalExercises - 1
                   ? 'Complete Exercise & Finish Workout ✓'
                   : 'Complete Exercise ✓'}
               </Button>

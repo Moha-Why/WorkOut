@@ -5,7 +5,6 @@ export interface OfflineDB {
   exercises: OfflineExercise
   workouts: OfflineWorkout
   programs: OfflineProgram
-  pending_progress: PendingProgress
   cached_videos: CachedVideo
 }
 
@@ -30,17 +29,6 @@ export interface OfflineProgram {
   cached_at: number
 }
 
-// Pending sync items
-export interface PendingProgress {
-  id: string
-  type: 'exercise' | 'workout'
-  user_id: string
-  entity_id: string
-  completed_at: number
-  synced: boolean
-  retry_count: number
-}
-
 // Cached video blobs
 export interface CachedVideo {
   video_id: string
@@ -48,21 +36,6 @@ export interface CachedVideo {
   blob_url: string
   cached_at: number
   size_bytes: number
-}
-
-// Sync status
-export interface SyncStatus {
-  is_syncing: boolean
-  last_sync: Date | null
-  pending_count: number
-  errors: SyncError[]
-}
-
-export interface SyncError {
-  id: string
-  type: 'exercise' | 'workout' | 'video'
-  message: string
-  timestamp: Date
 }
 
 // Download progress

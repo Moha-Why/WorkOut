@@ -1,9 +1,8 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb'
+import { openDB, IDBPDatabase } from 'idb'
 import {
   OfflineExercise,
   OfflineWorkout,
   OfflineProgram,
-  PendingProgress,
   CachedVideo,
 } from '@/types/offline'
 
@@ -23,11 +22,6 @@ interface WorkoutDB {
     value: OfflineProgram
     indexes: { 'by-cached': number }
   }
-  pending_progress: {
-    key: string
-    value: PendingProgress
-    indexes: { 'by-synced': boolean; 'by-type': string }
-  }
   cached_videos: {
     key: string
     value: CachedVideo
@@ -36,11 +30,18 @@ interface WorkoutDB {
 }
 
 const DB_NAME = 'workout-app-db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbInstance: IDBPDatabase<WorkoutDB> | null = null
 
+// Check if we're in a browser environment
+const isBrowser = typeof window !== 'undefined' && typeof indexedDB !== 'undefined'
+
 export async function getDB(): Promise<IDBPDatabase<WorkoutDB>> {
+  if (!isBrowser) {
+    throw new Error('IndexedDB is not available in this environment')
+  }
+
   if (dbInstance) {
     return dbInstance
   }
@@ -65,15 +66,6 @@ export async function getDB(): Promise<IDBPDatabase<WorkoutDB>> {
         programStore.createIndex('by-cached', 'cached_at')
       }
 
-      // Pending progress store
-      if (!db.objectStoreNames.contains('pending_progress')) {
-        const progressStore = db.createObjectStore('pending_progress', {
-          keyPath: 'id',
-        })
-        progressStore.createIndex('by-synced', 'synced')
-        progressStore.createIndex('by-type', 'type')
-      }
-
       // Cached videos store
       if (!db.objectStoreNames.contains('cached_videos')) {
         const videoStore = db.createObjectStore('cached_videos', {
@@ -81,6 +73,11 @@ export async function getDB(): Promise<IDBPDatabase<WorkoutDB>> {
         })
         videoStore.createIndex('by-provider', 'provider')
         videoStore.createIndex('by-cached', 'cached_at')
+      }
+
+      // Remove pending_progress store if it exists (cleanup)
+      if (db.objectStoreNames.contains('pending_progress')) {
+        db.deleteObjectStore('pending_progress')
       }
     },
   })
@@ -126,6 +123,7 @@ export async function getWorkout(id: string): Promise<OfflineWorkout | undefined
 }
 
 export async function getAllWorkouts(): Promise<OfflineWorkout[]> {
+  if (!isBrowser) return []
   const db = await getDB()
   return db.getAll('workouts')
 }
@@ -144,55 +142,6 @@ export async function getProgram(id: string): Promise<OfflineProgram | undefined
 export async function getAllPrograms(): Promise<OfflineProgram[]> {
   const db = await getDB()
   return db.getAll('programs')
-}
-
-// Pending progress operations
-export async function savePendingProgress(progress: PendingProgress) {
-  const db = await getDB()
-  await db.put('pending_progress', progress)
-}
-
-export async function getPendingProgress(): Promise<PendingProgress[]> {
-  const db = await getDB()
-  return db.getAll('pending_progress')
-}
-
-export async function getUnsyncedProgress(): Promise<PendingProgress[]> {
-  const db = await getDB()
-  const all = await db.getAll('pending_progress')
-  return all.filter(p => !p.synced)
-}
-
-export async function getCompletedExerciseIds(userId: string): Promise<Set<string>> {
-  const db = await getDB()
-  const all = await db.getAll('pending_progress')
-  const exerciseIds = all
-    .filter(p => p.user_id === userId && p.type === 'exercise')
-    .map(p => p.entity_id)
-  return new Set(exerciseIds)
-}
-
-export async function getCompletedWorkoutIds(userId: string): Promise<Set<string>> {
-  const db = await getDB()
-  const all = await db.getAll('pending_progress')
-  const workoutIds = all
-    .filter(p => p.user_id === userId && p.type === 'workout')
-    .map(p => p.entity_id)
-  return new Set(workoutIds)
-}
-
-export async function markProgressSynced(id: string) {
-  const db = await getDB()
-  const progress = await db.get('pending_progress', id)
-  if (progress) {
-    progress.synced = true
-    await db.put('pending_progress', progress)
-  }
-}
-
-export async function deletePendingProgress(id: string) {
-  const db = await getDB()
-  await db.delete('pending_progress', id)
 }
 
 // Cached video operations
@@ -220,7 +169,7 @@ export async function deleteCachedVideo(videoId: string) {
 export async function clearAllOfflineData() {
   const db = await getDB()
   const tx = db.transaction(
-    ['exercises', 'workouts', 'programs', 'pending_progress', 'cached_videos'],
+    ['exercises', 'workouts', 'programs', 'cached_videos'],
     'readwrite'
   )
 
@@ -228,7 +177,6 @@ export async function clearAllOfflineData() {
     tx.objectStore('exercises').clear(),
     tx.objectStore('workouts').clear(),
     tx.objectStore('programs').clear(),
-    tx.objectStore('pending_progress').clear(),
     tx.objectStore('cached_videos').clear(),
   ])
 
@@ -241,6 +189,9 @@ export async function getStorageEstimate(): Promise<{
   quota: number
   percentage: number
 }> {
+  if (!isBrowser) {
+    return { usage: 0, quota: 0, percentage: 0 }
+  }
   if ('storage' in navigator && 'estimate' in navigator.storage) {
     const estimate = await navigator.storage.estimate()
     return {

@@ -121,11 +121,6 @@ export default function UserWorkoutsPage() {
     }
 
     fetchWorkouts()
-
-    // Set up an interval to refresh data periodically (every 10 seconds)
-    const interval = setInterval(fetchWorkouts, 10000)
-
-    return () => clearInterval(interval)
   }, [profile, programId, router])
 
   // Check which workouts are already downloaded

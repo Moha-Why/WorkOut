@@ -26,16 +26,18 @@ function formatDate(timestamp: number): string {
 }
 
 export default function OfflinePage() {
-  const [isOnline, setIsOnline] = useState(false)
+  const [isOnline, setIsOnline] = useState(true)
   const [downloadedWorkouts, setDownloadedWorkouts] = useState<OfflineWorkout[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
 
   // Workout player state
   const [selectedWorkout, setSelectedWorkout] = useState<OfflineWorkout | null>(null)
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0)
 
   useEffect(() => {
+    setIsMounted(true)
     setIsOnline(navigator.onLine)
 
     const handleOnline = () => setIsOnline(true)
@@ -98,6 +100,15 @@ export default function OfflinePage() {
     if (currentExerciseIndex > 0) {
       setCurrentExerciseIndex((prev) => prev - 1)
     }
+  }
+
+  // Show loading state until mounted (prevents SSR hydration issues)
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-bg-main flex items-center justify-center">
+        <div className="text-text-primary/60">Loading...</div>
+      </div>
+    )
   }
 
   // Workout Player View
