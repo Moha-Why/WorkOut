@@ -22,9 +22,9 @@ export function useAuth() {
     error: null,
   })
 
+  const supabase = createClient()
   useEffect(() => {
     let isMounted = true
-    const supabase = createClient()
 
     const getSession = async () => {
       try {
@@ -94,31 +94,13 @@ export function useAuth() {
           return
         }
 
-        try {
-          const { data: profile, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single<Profile>()
-
-          if (!isMounted) return
-
-          if (error) {
-            setState(prev => ({ ...prev, error, isLoading: false }))
-            return
+        // Skip if we already have this user's data (signIn already fetched it)
+        setState(prev => {
+          if (prev.user?.id === session.user.id && prev.profile) {
+            return { ...prev, isLoading: false }
           }
-
-          setState({
-            user: session.user,
-            profile,
-            role: profile.role,
-            isLoading: false,
-            error: null,
-          })
-        } catch (error) {
-          if (!isMounted) return
-          setState(prev => ({ ...prev, error: error as Error, isLoading: false }))
-        }
+          return prev
+        })
       })
 
     return () => {
@@ -127,7 +109,6 @@ export function useAuth() {
     }
   }, [])
 
-  const supabase = createClient()
   const signIn = async (email: string, password: string) => {
     let step = 'init'
 
@@ -141,26 +122,20 @@ export function useAuth() {
     }
 
     try {
-      if (typeof window !== 'undefined') {
-        window.alert('signIn called - step: init')
-      }
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
       step = 'signInWithPassword'
-      window.alert('step: signInWithPassword - calling supabase')
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password }),
         10000,
         step
       )
-      window.alert('step: signInWithPassword - done')
 
       step = 'checkError'
       if (error) throw error
 
       step = 'checkUser'
       if (data.user) {
-        window.alert('step: fetchProfile - user found')
         step = 'fetchProfile'
         const { data: profile, error: profileError } = await withTimeout(
           supabase
@@ -204,7 +179,6 @@ export function useAuth() {
     name: string,
     role: UserRole = 'user'
   ) => {
-    const supabase = createClient()
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -239,7 +213,6 @@ export function useAuth() {
   }
 
   const signOut = async () => {
-    const supabase = createClient()
     try {
       setState((prev) => ({ ...prev, isLoading: true, error: null }))
 
@@ -267,7 +240,6 @@ export function useAuth() {
   }
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    const supabase = createClient()
     try {
       if (!state.user) throw new Error('No user logged in')
 
