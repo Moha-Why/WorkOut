@@ -69,7 +69,7 @@ export default function WorkoutPlayerPage() {
           rpe: log.rpe,
           completed_at: log.completed_at,
           notes: log.notes,
-        })
+        } as any)
 
         if (!error) {
           await markSetLogSynced(log.id)
@@ -314,7 +314,7 @@ export default function WorkoutPlayerPage() {
         rpe: null,
         completed_at: completedAt,
         notes: null,
-      })
+      } as any)
 
       if (error) {
         console.error('Error saving to Supabase:', error)
