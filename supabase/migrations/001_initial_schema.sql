@@ -14,6 +14,22 @@ CREATE TABLE public.profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+create table user_set_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references profiles(id) on delete cascade,
+  workout_id uuid references workouts(id) on delete cascade,
+  exercise_id uuid references exercises(id) on delete cascade,
+  set_number integer not null,
+  weight decimal(6,2),  -- e.g., 102.5 kg
+  reps integer not null,
+  rpe integer,  -- optional: rate of perceived exertion (1-10)
+  completed_at timestamp with time zone default now(),
+  notes text,
+  
+  unique(user_id, workout_id, exercise_id, set_number, completed_at::date)
+);
+
+
 -- =============================================
 -- COACHES TABLE
 -- =============================================

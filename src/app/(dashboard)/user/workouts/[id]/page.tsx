@@ -1,17 +1,22 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
-import { useWorkoutPlayer } from '@/hooks/useWorkoutPlayer'
 import { createClient } from '@/lib/supabase/client'
-import { Exercise, Workout } from '@/types'
-import { VideoPlayer } from '@/components/ui/VideoPlayer'
-import { MuscleModel } from '@/components/ui/MuscleModel'
+import { Exercise, Workout, SetLog } from '@/types'
+import { ExerciseLogger } from '@/components/workouts/ExerciseLogger'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { getWorkout as getOfflineWorkout } from '@/lib/offline/db'
+import { Toast } from '@/components/ui/Toast'
 import { Card, CardContent } from '@/components/ui/Card'
+import { getWorkout as getOfflineWorkout } from '@/lib/offline/db'
+import {
+  saveSetLog,
+  getSetLogsForWorkout,
+  getPendingSetLogs,
+  markSetLogSynced,
+} from '@/lib/offline/setLogs'
 
 export default function WorkoutPlayerPage() {
   const params = useParams()
@@ -21,35 +26,68 @@ export default function WorkoutPlayerPage() {
 
   const [workout, setWorkout] = useState<Workout | null>(null)
   const [exercises, setExercises] = useState<Exercise[]>([])
-  const [completedExercises, setCompletedExercises] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
-  const [workoutCompletedThisSession, setWorkoutCompletedThisSession] = useState(false)
   const [isOfflineMode, setIsOfflineMode] = useState(false)
-
-  const {
-    currentExercise,
-    currentIndex,
-    restTimer,
-    isResting,
-    progress,
-    totalExercises,
-    nextExercise,
-    previousExercise,
-    completeExercise,
-    skipRest,
-  } = useWorkoutPlayer({
-    exercises,
-    onComplete: handleExerciseComplete,
-    onWorkoutComplete: handleWorkoutComplete,
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
+    message: '',
+    type: 'success',
+    isOpen: false,
   })
 
+  // Track completed sets per exercise: { exerciseId: Set<setNumber> }
+  const [completedSets, setCompletedSets] = useState<Record<string, Set<number>>>({})
+
+  // Previous session logs for pre-filling
+  const [previousLogs, setPreviousLogs] = useState<Record<string, SetLog[]>>({})
+
+  // Current session logs
+  const [sessionLogs, setSessionLogs] = useState<SetLog[]>([])
+
+  // Track if workout was already completed today
+  const [workoutAlreadyCompleted, setWorkoutAlreadyCompleted] = useState(false)
+
+  // Sync pending logs when online
+  const syncPendingLogs = useCallback(async () => {
+    if (!navigator.onLine || !profile) return
+
+    try {
+      const pending = await getPendingSetLogs()
+      if (pending.length === 0) return
+
+      const supabase = createClient()
+
+      for (const log of pending) {
+        const { error } = await supabase.from('user_set_logs').insert({
+          id: log.id,
+          user_id: log.user_id,
+          workout_id: log.workout_id,
+          exercise_id: log.exercise_id,
+          set_number: log.set_number,
+          weight: log.weight,
+          reps: log.reps,
+          rpe: log.rpe,
+          completed_at: log.completed_at,
+          notes: log.notes,
+        })
+
+        if (!error) {
+          await markSetLogSynced(log.id)
+        }
+      }
+    } catch (error) {
+      console.error('Error syncing pending logs:', error)
+    }
+  }, [profile])
+
+  // Fetch workout and exercises
   useEffect(() => {
     const fetchWorkout = async () => {
       if (!workoutId || !profile) return
 
       const online = typeof navigator !== 'undefined' ? navigator.onLine : true
 
-      // Try to load from offline cache first if offline
+      // Try offline cache first if offline
       if (!online) {
         try {
           const offlineWorkout = await getOfflineWorkout(workoutId)
@@ -57,6 +95,10 @@ export default function WorkoutPlayerPage() {
             setWorkout(offlineWorkout.data)
             setExercises(offlineWorkout.exercises)
             setIsOfflineMode(true)
+            // Expand first exercise by default
+            if (offlineWorkout.exercises.length > 0) {
+              setExpandedExerciseId(offlineWorkout.exercises[0].id)
+            }
             setIsLoading(false)
             return
           }
@@ -68,7 +110,6 @@ export default function WorkoutPlayerPage() {
       // Online: fetch from database
       const supabase = createClient()
 
-      // Fetch workout with exercises
       const { data: workoutData, error: workoutError } = await supabase
         .from('workouts')
         .select('*')
@@ -81,7 +122,7 @@ export default function WorkoutPlayerPage() {
         .eq('workout_id', workoutId)
         .order('order_index', { ascending: true })
 
-      // If online fetch fails, try offline cache as fallback
+      // Fallback to offline cache if fetch fails
       if ((workoutError || exerciseError) && !workoutData) {
         try {
           const offlineWorkout = await getOfflineWorkout(workoutId)
@@ -89,6 +130,9 @@ export default function WorkoutPlayerPage() {
             setWorkout(offlineWorkout.data)
             setExercises(offlineWorkout.exercises)
             setIsOfflineMode(true)
+            if (offlineWorkout.exercises.length > 0) {
+              setExpandedExerciseId(offlineWorkout.exercises[0].id)
+            }
             setIsLoading(false)
             return
           }
@@ -97,12 +141,55 @@ export default function WorkoutPlayerPage() {
         }
       }
 
-      // Check if workout was already completed today
+      setWorkout(workoutData)
+      setExercises(exerciseData || [])
+      setIsOfflineMode(false)
+
+      // Expand first exercise by default
+      if (exerciseData && exerciseData.length > 0) {
+        setExpandedExerciseId(exerciseData[0].id)
+      }
+
+      setIsLoading(false)
+    }
+
+    fetchWorkout()
+  }, [workoutId, profile])
+
+  // Fetch previous session logs and current session completed sets
+  useEffect(() => {
+    const fetchLogs = async () => {
+      if (!profile || !workoutId || exercises.length === 0) return
+
+      const supabase = createClient()
+
+      // Get today's date at midnight for filtering current session
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const todayISO = today.toISOString()
 
-      const { data: completionToday } = await supabase
+      // Fetch logs from before today (previous sessions) for each exercise
+      const prevLogsMap: Record<string, SetLog[]> = {}
+
+      for (const exercise of exercises) {
+        const { data } = await supabase
+          .from('user_set_logs')
+          .select('*')
+          .eq('user_id', profile.id)
+          .eq('exercise_id', exercise.id)
+          .lt('completed_at', todayISO)
+          .order('completed_at', { ascending: false })
+          .limit(exercise.sets || 3)
+
+        if (data && data.length > 0) {
+          prevLogsMap[exercise.id] = data as SetLog[]
+        }
+      }
+
+      setPreviousLogs(prevLogsMap)
+
+      // Check if workout was already completed today
+      const { data: workoutProgress } = await supabase
         .from('user_workout_progress')
         .select('id')
         .eq('user_id', profile.id)
@@ -110,73 +197,207 @@ export default function WorkoutPlayerPage() {
         .gte('completed_at', todayISO)
         .limit(1)
 
-      if (completionToday && completionToday.length > 0) {
-        setWorkoutCompletedThisSession(true)
+      if (workoutProgress && workoutProgress.length > 0) {
+        setWorkoutAlreadyCompleted(true)
       }
 
-      setWorkout(workoutData)
-      setExercises(exerciseData || [])
-      setIsOfflineMode(false)
-      setIsLoading(false)
+      // Fetch today's logs (current session)
+      const { data: todayLogs } = await supabase
+        .from('user_set_logs')
+        .select('*')
+        .eq('user_id', profile.id)
+        .eq('workout_id', workoutId)
+        .gte('completed_at', todayISO)
+
+      if (todayLogs && todayLogs.length > 0) {
+        setSessionLogs(todayLogs as SetLog[])
+
+        // Build completed sets map from today's logs
+        const completed: Record<string, Set<number>> = {}
+        for (const log of todayLogs) {
+          if (!completed[log.exercise_id]) {
+            completed[log.exercise_id] = new Set()
+          }
+          completed[log.exercise_id].add(log.set_number)
+        }
+        setCompletedSets(completed)
+      }
+
+      // Also check IndexedDB for any offline logs
+      try {
+        const offlineLogs = await getSetLogsForWorkout(workoutId)
+        if (offlineLogs.length > 0) {
+          const completed: Record<string, Set<number>> = { ...completedSets }
+          for (const log of offlineLogs) {
+            if (!completed[log.exercise_id]) {
+              completed[log.exercise_id] = new Set()
+            }
+            completed[log.exercise_id].add(log.set_number)
+          }
+          setCompletedSets(completed)
+        }
+      } catch (error) {
+        console.error('Error loading offline logs:', error)
+      }
     }
 
-    fetchWorkout()
-  }, [workoutId, profile])
+    if (!isLoading) {
+      fetchLogs()
+    }
+  }, [profile, workoutId, exercises, isLoading])
 
-  async function handleExerciseComplete(exerciseId: string) {
+  // Sync pending logs when coming online
+  useEffect(() => {
+    window.addEventListener('online', syncPendingLogs)
+    // Try to sync on mount if online
+    syncPendingLogs()
+
+    return () => {
+      window.removeEventListener('online', syncPendingLogs)
+    }
+  }, [syncPendingLogs])
+
+  const handleSetComplete = async (
+    exerciseId: string,
+    setNumber: number,
+    weight: number | null,
+    reps: number
+  ) => {
     if (!profile) return
 
-    // Add to completed set
-    setCompletedExercises(prev => new Set(prev).add(exerciseId))
-
-    // Don't save progress in offline mode
-    if (isOfflineMode) return
-
-    const supabase = createClient()
+    const logId = crypto.randomUUID()
     const completedAt = new Date().toISOString()
 
+    const newLog: SetLog = {
+      id: logId,
+      user_id: profile.id,
+      workout_id: workoutId,
+      exercise_id: exerciseId,
+      set_number: setNumber,
+      weight,
+      reps,
+      rpe: null,
+      completed_at: completedAt,
+      notes: null,
+    }
+
+    // Update UI immediately
+    setCompletedSets((prev) => {
+      const updated = { ...prev }
+      if (!updated[exerciseId]) {
+        updated[exerciseId] = new Set()
+      }
+      updated[exerciseId] = new Set(updated[exerciseId]).add(setNumber)
+      return updated
+    })
+
+    setSessionLogs((prev) => [...prev, newLog])
+
+    // Save to IndexedDB first (for offline support)
     try {
-      await supabase
-        .from('user_exercise_progress')
-        .insert({
-          user_id: profile.id,
-          exercise_id: exerciseId,
-          completed_at: completedAt,
-        } as never)
-    } catch (err) {
-      console.error('Failed to save progress:', err)
+      await saveSetLog(newLog)
+    } catch (error) {
+      console.error('Error saving to IndexedDB:', error)
+    }
+
+    // If online, also save to Supabase
+    if (navigator.onLine) {
+      const supabase = createClient()
+      const { error } = await supabase.from('user_set_logs').insert({
+        id: logId,
+        user_id: profile.id,
+        workout_id: workoutId,
+        exercise_id: exerciseId,
+        set_number: setNumber,
+        weight,
+        reps,
+        rpe: null,
+        completed_at: completedAt,
+        notes: null,
+      })
+
+      if (error) {
+        console.error('Error saving to Supabase:', error)
+        setToast({
+          message: 'Saved offline - will sync when connected',
+          type: 'info',
+          isOpen: true,
+        })
+      } else {
+        // Mark as synced in IndexedDB
+        await markSetLogSynced(logId)
+      }
+    } else {
+      setToast({
+        message: 'Saved offline - will sync when connected',
+        type: 'info',
+        isOpen: true,
+      })
+    }
+
+    // Check if exercise is now complete, expand next exercise
+    const exercise = exercises.find((e) => e.id === exerciseId)
+    if (exercise) {
+      const totalSets = exercise.sets || 3
+      const completedCount = (completedSets[exerciseId]?.size || 0) + 1
+      if (completedCount >= totalSets) {
+        // Find next incomplete exercise
+        const currentIndex = exercises.findIndex((e) => e.id === exerciseId)
+        for (let i = currentIndex + 1; i < exercises.length; i++) {
+          const nextExercise = exercises[i]
+          const nextCompletedCount = completedSets[nextExercise.id]?.size || 0
+          const nextTotalSets = nextExercise.sets || 3
+          if (nextCompletedCount < nextTotalSets) {
+            setExpandedExerciseId(nextExercise.id)
+            break
+          }
+        }
+      }
     }
   }
 
-  async function handleWorkoutComplete() {
-    if (!profile || !workoutId || workoutCompletedThisSession) return
+  const handleFinishWorkout = async () => {
+    if (!profile || !workoutId || workoutAlreadyCompleted) return
 
-    // Mark as completed in this session to prevent duplicate submissions
-    setWorkoutCompletedThisSession(true)
-
-    // Don't save progress in offline mode
-    if (isOfflineMode) return
-
-    const supabase = createClient()
-    const completedAt = new Date().toISOString()
-
-    try {
-      await supabase
-        .from('user_workout_progress')
-        .insert({
-          user_id: profile.id,
-          workout_id: workoutId,
-          completed_at: completedAt,
-        } as never)
-    } catch (err) {
-      console.error('Failed to save progress:', err)
+    // Save workout completion
+    if (navigator.onLine) {
+      const supabase = createClient()
+      await supabase.from('user_workout_progress').insert({
+        user_id: profile.id,
+        workout_id: workoutId,
+        completed_at: new Date().toISOString(),
+      })
     }
 
-    // Navigate back after a short delay
+    setWorkoutAlreadyCompleted(true)
+
+    setToast({
+      message: 'Workout completed! Great job!',
+      type: 'success',
+      isOpen: true,
+    })
+
     setTimeout(() => {
       router.push('/user/workouts')
-    }, 500)
+    }, 1500)
   }
+
+  // Calculate overall progress
+  const calculateProgress = () => {
+    let totalSets = 0
+    let completedTotal = 0
+
+    for (const exercise of exercises) {
+      const sets = exercise.sets || 3
+      totalSets += sets
+      completedTotal += completedSets[exercise.id]?.size || 0
+    }
+
+    return totalSets > 0 ? Math.round((completedTotal / totalSets) * 100) : 0
+  }
+
+  const progress = calculateProgress()
+  const isWorkoutComplete = progress === 100
 
   if (isLoading) {
     return (
@@ -198,7 +419,7 @@ export default function WorkoutPlayerPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-2xl mx-auto space-y-6 pb-24">
       {/* Header */}
       <div>
         <button
@@ -223,190 +444,84 @@ export default function WorkoutPlayerPage() {
       </div>
 
       {/* Progress bar */}
-      <div>
-        <div className="flex items-center justify-between text-sm mb-2">
-          <span className="text-gray-400">
-            Exercise {currentIndex + 1} of {totalExercises}
-          </span>
-          <span className="font-medium">{Math.round(progress)}%</span>
-        </div>
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-green-500 transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Rest timer */}
-      {isResting && (
-        <Card className="border-orange-300 bg-orange-50">
-          <CardContent className="py-6">
-            <div className="text-center">
-              <p className="text-sm text-gray-600 mb-2">Rest Time</p>
-              <p className="text-5xl font-bold text-orange-600 mb-4">
-                {restTimer}s
-              </p>
-              <Button
-                onClick={skipRest}
-                className="border-2 border-orange-600 bg-white text-orange-600 hover:bg-orange-100"
-              >
-                Skip Rest
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Current exercise */}
-      {currentExercise && !isResting && (
-        <>
-          {/* Video */}
-          <VideoPlayer
-            provider={currentExercise.video_provider}
-            videoId={currentExercise.video_id}
-            className="mb-6"
-          />
-
-          {/* Exercise details */}
-          <Card>
-            <CardContent className="py-6 space-y-4">
-              <div>
-                <h2 className="text-2xl font-bold text-text-primary mb-2">
-                  {currentExercise.name}
-                </h2>
-                {currentExercise.notes && (
-                  <p className="text-gray-400">{currentExercise.notes}</p>
-                )}
-              </div>
-
-              {/* Sets, Reps, Rest */}
-              <div className="flex gap-6">
-                {currentExercise.sets && (
-                  <div>
-                    <p className="text-sm text-gray-400">Sets</p>
-                    <p className="text-2xl font-bold text-text-primary">
-                      {currentExercise.sets}
-                    </p>
-                  </div>
-                )}
-                {currentExercise.reps && (
-                  <div>
-                    <p className="text-sm text-gray-400">Reps</p>
-                    <p className="text-2xl font-bold text-text-primary">
-                      {currentExercise.reps}
-                    </p>
-                  </div>
-                )}
-                {currentExercise.rest_seconds && (
-                  <div>
-                    <p className="text-sm text-gray-400">Rest</p>
-                    <p className="text-2xl font-bold text-text-primary">
-                      {currentExercise.rest_seconds}s
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Muscle visualization */}
-              <div className="pt-4 border-t">
-                <MuscleModel
-                  targetMuscles={currentExercise.target_muscles}
-                  assistingMuscles={currentExercise.assisting_muscles || []}
-                  view="both"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Navigation */}
-          {workoutCompletedThisSession ? (
-            <Button
-              variant="outline"
-              disabled
-              className="w-full"
-            >
-              Already Completed Today ✓
-            </Button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {/* Navigation buttons */}
-              <div className="flex gap-3">
-                <Button
-                  onClick={previousExercise}
-                  variant="outline"
-                  disabled={currentIndex === 0}
-                  className="flex-1"
-                >
-                  ← Previous
-                </Button>
-                <Button
-                  onClick={nextExercise}
-                  variant="outline"
-                  disabled={currentIndex === totalExercises - 1}
-                  className="flex-1"
-                >
-                  Next →
-                </Button>
-              </div>
-
-              {/* Complete button */}
-              <Button
-                onClick={completeExercise}
-                variant="primary"
-                className="w-full"
-                disabled={isOfflineMode}
-              >
-                {isOfflineMode
-                  ? 'Go online to complete'
-                  : currentIndex === totalExercises - 1
-                  ? 'Complete Exercise & Finish Workout ✓'
-                  : 'Complete Exercise ✓'}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Exercise list */}
       <Card>
-        <CardContent className="py-6">
-          <h3 className="font-bold text-text-primary mb-4">Exercises</h3>
-          <div className="space-y-2">
-            {exercises.map((exercise, index) => (
-              <div
-                key={exercise.id}
-                className={`flex items-center justify-between p-3 rounded-lg transition-colors ${
-                  index === currentIndex
-                    ? 'bg-black text-white'
-                    : completedExercises.has(exercise.id)
-                    ? 'bg-green-50 text-green-900'
-                    : 'bg-bg-hover text-text-primary'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="font-medium">{index + 1}.</span>
-                  <span>{exercise.name}</span>
-                </div>
-                {completedExercises.has(exercise.id) && (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-success"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </div>
-            ))}
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-gray-400">Workout Progress</span>
+            <span className="font-bold text-accent">{progress}%</span>
+          </div>
+          <div className="h-3 bg-bg-hover rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-accent to-green-500 transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
           </div>
         </CardContent>
       </Card>
+
+      {/* Exercises */}
+      <div className="space-y-3">
+        {exercises.map((exercise) => (
+          <ExerciseLogger
+            key={exercise.id}
+            exercise={exercise}
+            previousLogs={previousLogs[exercise.id]}
+            completedSets={completedSets[exercise.id] || new Set()}
+            onSetComplete={handleSetComplete}
+            disabled={false}
+            isExpanded={expandedExerciseId === exercise.id}
+            onToggleExpand={() =>
+              setExpandedExerciseId(
+                expandedExerciseId === exercise.id ? null : exercise.id
+              )
+            }
+          />
+        ))}
+      </div>
+
+      {/* Finish button - fixed at bottom, respects sidebar */}
+      <div className="fixed bottom-0 left-0 right-0 md:left-64 p-4 bg-gradient-to-t from-bg-main via-bg-main to-transparent z-10">
+        <div className="max-w-2xl mx-auto px-2">
+          {workoutAlreadyCompleted ? (
+            <Button
+              variant="outline"
+              className="w-full py-4 text-lg font-bold border-green-500 text-green-500"
+              disabled
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Already Completed Today
+            </Button>
+          ) : (
+            <Button
+              onClick={handleFinishWorkout}
+              variant="primary"
+              className="w-full py-4 text-lg font-bold"
+              disabled={!isWorkoutComplete}
+            >
+              {isWorkoutComplete ? (
+                <>
+                  <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Finish Workout
+                </>
+              ) : (
+                `Complete all sets to finish (${progress}%)`
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Toast */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isOpen={toast.isOpen}
+        onClose={() => setToast({ ...toast, isOpen: false })}
+      />
     </div>
   )
 }
