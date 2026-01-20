@@ -29,7 +29,7 @@ export function ExerciseLogger({
   onToggleExpand,
 }: ExerciseLoggerProps) {
   const totalSets = exercise.sets || 3
-  const targetReps = exercise.reps || null
+  const targetReps = exercise.reps ? Number(exercise.reps) : null
   const restSeconds = exercise.rest_seconds || 60
 
   // Current set to show (next uncompleted set)
@@ -172,7 +172,7 @@ export function ExerciseLogger({
           )}
 
           {/* Muscle Model */}
-          {(exercise.target_muscles?.length > 0 || exercise.assisting_muscles?.length > 0) && (
+          {((exercise.target_muscles?.length ?? 0) > 0 || (exercise.assisting_muscles?.length ?? 0) > 0) && (
             <div className="border-t border-border pt-4">
               <MuscleModel
                 targetMuscles={exercise.target_muscles || []}
