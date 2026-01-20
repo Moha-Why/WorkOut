@@ -72,6 +72,20 @@ export interface CoachStats {
   avg_completion_rate: number
 }
 
+// Set logging types
+export interface SetLog {
+  id: string
+  user_id: string
+  workout_id: string
+  exercise_id: string
+  set_number: number
+  weight: number | null
+  reps: number
+  rpe: number | null
+  completed_at: string
+  notes: string | null
+}
+
 // UI State types
 export interface OfflineState {
   is_online: boolean
