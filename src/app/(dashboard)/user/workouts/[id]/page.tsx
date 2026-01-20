@@ -147,7 +147,7 @@ export default function WorkoutPlayerPage() {
 
       // Expand first exercise by default
       if (exerciseData && exerciseData.length > 0) {
-        setExpandedExerciseId(exerciseData[0].id)
+        setExpandedExerciseId((exerciseData[0] as any).id)
       }
 
       setIsLoading(false)
@@ -214,7 +214,7 @@ export default function WorkoutPlayerPage() {
 
         // Build completed sets map from today's logs
         const completed: Record<string, Set<number>> = {}
-        for (const log of todayLogs) {
+        for (const log of todayLogs as any[]) {
           if (!completed[log.exercise_id]) {
             completed[log.exercise_id] = new Set()
           }
@@ -366,7 +366,7 @@ export default function WorkoutPlayerPage() {
         user_id: profile.id,
         workout_id: workoutId,
         completed_at: new Date().toISOString(),
-      })
+      } as any)
     }
 
     setWorkoutAlreadyCompleted(true)
