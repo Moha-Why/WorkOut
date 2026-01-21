@@ -9,7 +9,14 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Toast } from '@/components/ui/Toast'
-import type { Workout, Exercise } from '@/types'
+import type { Workout, Exercise, ExerciseSet } from '@/types'
+
+interface SetConfig {
+  set_number: number
+  target_weight: string
+  target_reps: string
+  rest_seconds: string
+}
 
 interface ExerciseLibraryItem extends Exercise {
   id: string
@@ -35,6 +42,9 @@ export default function WorkoutEditorPage() {
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null)
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false)
   const [exerciseToRemove, setExerciseToRemove] = useState<{ id: string; name: string } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [exerciseSetsMap, setExerciseSetsMap] = useState<Record<string, SetConfig[]>>({})
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
     message: '',
     type: 'success',
@@ -84,6 +94,46 @@ export default function WorkoutEditorPage() {
       .order('order_index', { ascending: true })
 
     setExercises((exerciseData as Exercise[]) || [])
+
+    // Fetch exercise_sets for all exercises
+    if (exerciseData && exerciseData.length > 0) {
+      const exerciseIds = exerciseData.map((e: any) => e.id)
+      const { data: setsData } = await supabase
+        .from('exercise_sets')
+        .select('*')
+        .in('exercise_id', exerciseIds)
+        .order('set_number', { ascending: true })
+
+      if (setsData && setsData.length > 0) {
+        const setsMap: Record<string, SetConfig[]> = {}
+        for (const set of setsData as any[]) {
+          if (!setsMap[set.exercise_id]) {
+            setsMap[set.exercise_id] = []
+          }
+          setsMap[set.exercise_id].push({
+            set_number: set.set_number,
+            target_weight: set.target_weight?.toString() || '',
+            target_reps: set.target_reps?.toString() || '',
+            rest_seconds: set.rest_seconds?.toString() || '60',
+          })
+        }
+        setExerciseSetsMap(setsMap)
+      } else {
+        // Initialize with default sets based on exercise.sets
+        const setsMap: Record<string, SetConfig[]> = {}
+        for (const exercise of exerciseData as Exercise[]) {
+          const numSets = exercise.sets || 3
+          setsMap[exercise.id] = Array.from({ length: numSets }, (_, i) => ({
+            set_number: i + 1,
+            target_weight: '',
+            target_reps: exercise.reps?.toString() || '',
+            rest_seconds: exercise.rest_seconds?.toString() || '60',
+          }))
+        }
+        setExerciseSetsMap(setsMap)
+      }
+    }
+
     setIsLoading(false)
   }
 
@@ -152,7 +202,7 @@ export default function WorkoutEditorPage() {
         ? (existingExercises[0] as { order_index: number }).order_index + 1
         : 0
 
-    const { error } = await supabase.from('exercises').insert({
+    const { data: newExercise, error } = await supabase.from('exercises').insert({
       workout_id: workoutId,
       name: exercise.name,
       video_provider: exercise.video_provider,
@@ -164,17 +214,37 @@ export default function WorkoutEditorPage() {
       rest_seconds: exercise.rest_seconds || null,
       notes: exercise.notes || null,
       order_index: nextOrderIndex,
-    } as never)
+    } as never).select('id').single()
 
-    if (error) {
+    if (error || !newExercise) {
       console.error('Error adding exercise:', error)
       setToast({ message: 'Error adding exercise', type: 'error', isOpen: true })
       return
     }
 
+    // Copy exercise_sets from library exercise to new workout exercise
+    const { data: librarySets } = await supabase
+      .from('exercise_sets')
+      .select('*')
+      .eq('exercise_id', selectedExercise)
+      .order('set_number', { ascending: true })
+
+    if (librarySets && librarySets.length > 0) {
+      const newSets = librarySets.map((set: any) => ({
+        exercise_id: (newExercise as any).id,
+        set_number: set.set_number,
+        target_weight: set.target_weight,
+        target_reps: set.target_reps,
+        rest_seconds: set.rest_seconds,
+      }))
+
+      await supabase.from('exercise_sets').insert(newSets as any)
+    }
+
     setToast({ message: 'Exercise added successfully', type: 'success', isOpen: true })
     setShowAddExerciseModal(false)
     setSelectedExercise(null)
+    setSearchQuery('')
     await fetchWorkoutData()
   }
 
@@ -230,38 +300,119 @@ export default function WorkoutEditorPage() {
     setExercises(newExercises)
   }
 
-  const handleEditExercise = async (
+  // Update a specific set's config
+  const handleSetConfigChange = (
     exerciseId: string,
-    field: 'sets' | 'reps' | 'rest_seconds',
+    setIndex: number,
+    field: 'target_weight' | 'target_reps' | 'rest_seconds',
     value: string
   ) => {
+    setExerciseSetsMap((prev) => {
+      const sets = [...(prev[exerciseId] || [])]
+      if (sets[setIndex]) {
+        sets[setIndex] = { ...sets[setIndex], [field]: value }
+      }
+      return { ...prev, [exerciseId]: sets }
+    })
+  }
+
+  // Add a new set to an exercise
+  const handleAddSet = (exerciseId: string) => {
+    setExerciseSetsMap((prev) => {
+      const sets = [...(prev[exerciseId] || [])]
+      const lastSet = sets[sets.length - 1]
+      sets.push({
+        set_number: sets.length + 1,
+        target_weight: lastSet?.target_weight || '',
+        target_reps: lastSet?.target_reps || '',
+        rest_seconds: lastSet?.rest_seconds || '60',
+      })
+      return { ...prev, [exerciseId]: sets }
+    })
+  }
+
+  // Remove a set from an exercise
+  const handleRemoveSet = (exerciseId: string, setIndex: number) => {
+    setExerciseSetsMap((prev) => {
+      const sets = prev[exerciseId]?.filter((_, i) => i !== setIndex).map((s, i) => ({
+        ...s,
+        set_number: i + 1,
+      })) || []
+      return { ...prev, [exerciseId]: sets }
+    })
+  }
+
+  // Save exercise sets to database
+  const handleSaveExerciseSets = async (exerciseId: string) => {
     const supabase = createClient()
+    const sets = exerciseSetsMap[exerciseId] || []
 
-    let updateValue: number | string | null = value
+    // Delete existing sets
+    await supabase.from('exercise_sets').delete().eq('exercise_id', exerciseId)
 
-    if (field === 'sets' || field === 'rest_seconds') {
-      updateValue = value ? parseInt(value) : null
-    } else if (field === 'reps') {
-      updateValue = value || null
-    }
+    // Insert new sets
+    if (sets.length > 0) {
+      const setData = sets.map((config) => ({
+        exercise_id: exerciseId,
+        set_number: config.set_number,
+        target_weight: config.target_weight ? parseFloat(config.target_weight) : null,
+        target_reps: config.target_reps ? parseInt(config.target_reps) : null,
+        rest_seconds: config.rest_seconds ? parseInt(config.rest_seconds) : null,
+      }))
 
-    const { error } = await supabase
-      .from('exercises')
-      .update({ [field]: updateValue } as never)
-      .eq('id', exerciseId)
+      const { error } = await supabase.from('exercise_sets').insert(setData as any)
 
-    if (error) {
-      console.error('Error updating exercise:', error)
-      setToast({ message: 'Error updating exercise', type: 'error', isOpen: true })
-      return
-    }
+      if (error) {
+        console.error('Error saving exercise sets:', error)
+        setToast({ message: 'Error saving sets', type: 'error', isOpen: true })
+        return
+      }
 
-    // Update local state
-    setExercises(
-      exercises.map((ex) =>
-        ex.id === exerciseId ? { ...ex, [field]: updateValue } : ex
+      // Also update the exercise's sets count
+      await supabase
+        .from('exercises')
+        .update({
+          sets: sets.length,
+          reps: sets[0]?.target_reps || null,
+          rest_seconds: sets[0]?.rest_seconds ? parseInt(sets[0].rest_seconds) : null,
+        } as never)
+        .eq('id', exerciseId)
+
+      // Update local exercises state
+      setExercises(
+        exercises.map((ex) =>
+          ex.id === exerciseId
+            ? {
+                ...ex,
+                sets: sets.length,
+                reps: sets[0]?.target_reps || null,
+                rest_seconds: sets[0]?.rest_seconds ? parseInt(sets[0].rest_seconds) : null,
+              }
+            : ex
+        )
       )
-    )
+    }
+
+    setToast({ message: 'Sets saved successfully', type: 'success', isOpen: true })
+    setExpandedExerciseId(null)
+  }
+
+  // Copy first set values to all sets
+  const handleCopyToAllSets = (exerciseId: string) => {
+    setExerciseSetsMap((prev) => {
+      const sets = prev[exerciseId] || []
+      if (sets.length === 0) return prev
+      const firstSet = sets[0]
+      return {
+        ...prev,
+        [exerciseId]: sets.map((s) => ({
+          ...s,
+          target_weight: firstSet.target_weight,
+          target_reps: firstSet.target_reps,
+          rest_seconds: firstSet.rest_seconds,
+        })),
+      }
+    })
   }
 
   if (isLoading) {
@@ -327,19 +478,21 @@ export default function WorkoutEditorPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {exercises.map((exercise, index) => (
-            <Card key={exercise.id}>
-              <CardContent className="py-4">
-                {/* Mobile Layout */}
-                <div className="flex flex-col gap-4 md:hidden">
-                  {/* Header with order and name */}
-                  <div className="flex items-start gap-3">
+          {exercises.map((exercise, index) => {
+            const isExpanded = expandedExerciseId === exercise.id
+            const sets = exerciseSetsMap[exercise.id] || []
+
+            return (
+              <Card key={exercise.id}>
+                <CardContent className="py-4">
+                  {/* Exercise Header */}
+                  <div className="flex items-center gap-3">
                     {/* Order Controls */}
                     <div className="flex flex-col gap-1 shrink-0">
                       <button
                         onClick={() => handleMoveExercise(index, 'up')}
                         disabled={index === 0}
-                        className="p-2 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
+                        className="p-1 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
                         title="Move up"
                       >
                         ▲
@@ -350,182 +503,51 @@ export default function WorkoutEditorPage() {
                       <button
                         onClick={() => handleMoveExercise(index, 'down')}
                         disabled={index === exercises.length - 1}
-                        className="p-2 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
+                        className="p-1 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
                         title="Move down"
                       >
                         ▼
                       </button>
                     </div>
 
-                    {/* Exercise Details */}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-text-primary wrap-break-word">
+                    {/* Exercise Details - Clickable to expand */}
+                    <button
+                      onClick={() => setExpandedExerciseId(isExpanded ? null : exercise.id)}
+                      className="flex-1 min-w-0 text-left"
+                    >
+                      <h3 className="font-semibold text-text-primary truncate">
                         {exercise.name}
                       </h3>
-                      <div className="flex flex-wrap gap-2 mt-2">
+                      <p className="text-sm text-gray-400 mt-1">
+                        {sets.length} sets
+                        {sets[0]?.target_reps && ` × ${sets[0].target_reps} reps`}
+                        {sets[0]?.rest_seconds && ` • ${sets[0].rest_seconds}s rest`}
+                      </p>
+                      <div className="flex flex-wrap gap-1 mt-2">
                         {exercise.target_muscles.map((muscle) => (
                           <Badge key={muscle} variant="info" className="text-xs">
                             {muscle}
                           </Badge>
                         ))}
                       </div>
-                    </div>
-                  </div>
-
-                  {/* Exercise Parameters - Mobile */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Sets
-                      </label>
-                      <input
-                        type="number"
-                        value={exercise.sets || ''}
-                        onChange={(e) =>
-                          handleEditExercise(exercise.id, 'sets', e.target.value)
-                        }
-                        className="w-full px-3 py-2 text-sm border border-border bg-bg-hover text-text-primary rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
-                        min="1"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Reps
-                      </label>
-                      <input
-                        type="text"
-                        value={exercise.reps || ''}
-                        onChange={(e) =>
-                          handleEditExercise(exercise.id, 'reps', e.target.value)
-                        }
-                        className="w-full px-3 py-2 text-sm border border-border bg-bg-hover text-text-primary rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
-                        placeholder="8-12"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Rest (s)
-                      </label>
-                      <input
-                        type="number"
-                        value={exercise.rest_seconds || ''}
-                        onChange={(e) =>
-                          handleEditExercise(
-                            exercise.id,
-                            'rest_seconds',
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-3 py-2 text-sm border border-border bg-bg-hover text-text-primary rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
-                        min="0"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Remove Button - Mobile */}
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      setExerciseToRemove({ id: exercise.id, name: exercise.name })
-                      setShowRemoveConfirm(true)
-                    }}
-                    className="w-full"
-                  >
-                    Remove Exercise
-                  </Button>
-                </div>
-
-                {/* Desktop Layout */}
-                <div className="hidden md:flex items-center gap-4">
-                  {/* Order Controls */}
-                  <div className="flex flex-col gap-1 shrink-0">
-                    <button
-                      onClick={() => handleMoveExercise(index, 'up')}
-                      disabled={index === 0}
-                      className="p-1 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
-                      title="Move up"
-                    >
-                      ▲
                     </button>
-                    <span className="text-sm font-bold text-gray-400 text-center">
-                      {index + 1}
-                    </span>
+
+                    {/* Expand/Collapse Icon */}
                     <button
-                      onClick={() => handleMoveExercise(index, 'down')}
-                      disabled={index === exercises.length - 1}
-                      className="p-1 hover:bg-bg-hover rounded disabled:opacity-30 disabled:cursor-not-allowed text-text-primary"
-                      title="Move down"
+                      onClick={() => setExpandedExerciseId(isExpanded ? null : exercise.id)}
+                      className="p-2 hover:bg-bg-hover rounded text-gray-400"
                     >
-                      ▼
+                      <svg
+                        className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </button>
-                  </div>
 
-                  {/* Exercise Details */}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-text-primary truncate">
-                      {exercise.name}
-                    </h3>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {exercise.target_muscles.map((muscle) => (
-                        <Badge key={muscle} variant="info" className="text-xs">
-                          {muscle}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Exercise Parameters */}
-                  <div className="flex gap-3 shrink-0">
-                    <div className="w-20">
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Sets
-                      </label>
-                      <input
-                        type="number"
-                        value={exercise.sets || ''}
-                        onChange={(e) =>
-                          handleEditExercise(exercise.id, 'sets', e.target.value)
-                        }
-                        className="w-full px-2 py-1 text-sm border border-border bg-bg-hover text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
-                        min="1"
-                      />
-                    </div>
-                    <div className="w-24">
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Reps
-                      </label>
-                      <input
-                        type="text"
-                        value={exercise.reps || ''}
-                        onChange={(e) =>
-                          handleEditExercise(exercise.id, 'reps', e.target.value)
-                        }
-                        className="w-full px-2 py-1 text-sm border border-border bg-bg-hover text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
-                        placeholder="8-12"
-                      />
-                    </div>
-                    <div className="w-20">
-                      <label className="text-xs text-gray-400 block mb-1">
-                        Rest (s)
-                      </label>
-                      <input
-                        type="number"
-                        value={exercise.rest_seconds || ''}
-                        onChange={(e) =>
-                          handleEditExercise(
-                            exercise.id,
-                            'rest_seconds',
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-2 py-1 text-sm border border-border bg-bg-hover text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
-                        min="0"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Remove Button */}
-                  <div className="shrink-0">
+                    {/* Remove Button */}
                     <Button
                       variant="danger"
                       size="sm"
@@ -533,14 +555,107 @@ export default function WorkoutEditorPage() {
                         setExerciseToRemove({ id: exercise.id, name: exercise.name })
                         setShowRemoveConfirm(true)
                       }}
+                      className="shrink-0"
                     >
                       Remove
                     </Button>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+
+                  {/* Expanded Per-Set Configuration */}
+                  {isExpanded && (
+                    <div className="mt-4 pt-4 border-t border-border space-y-4">
+                      {/* Sets Configuration */}
+                      <div className="space-y-3">
+                        {sets.map((config, setIndex) => (
+                          <div key={setIndex} className="flex items-center gap-3 p-3 bg-bg-hover rounded-lg">
+                            <div className="w-10 h-10 flex items-center justify-center rounded-full bg-bg-main text-sm font-bold text-text-primary shrink-0">
+                              {config.set_number}
+                            </div>
+                            <div className="flex-1 grid grid-cols-3 gap-2">
+                              <div>
+                                <label className="text-xs text-gray-400 block mb-1">Weight (kg)</label>
+                                <input
+                                  type="number"
+                                  value={config.target_weight}
+                                  onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'target_weight', e.target.value)}
+                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  placeholder="kg"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-gray-400 block mb-1">Reps</label>
+                                <input
+                                  type="number"
+                                  value={config.target_reps}
+                                  onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'target_reps', e.target.value)}
+                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  placeholder="reps"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-gray-400 block mb-1">Rest (sec)</label>
+                                <input
+                                  type="number"
+                                  value={config.rest_seconds}
+                                  onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'rest_seconds', e.target.value)}
+                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  placeholder="60"
+                                />
+                              </div>
+                            </div>
+                            {sets.length > 1 && (
+                              <button
+                                onClick={() => handleRemoveSet(exercise.id, setIndex)}
+                                className="text-red-500 hover:text-red-700 p-2 shrink-0"
+                                title="Remove set"
+                              >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleAddSet(exercise.id)}
+                        >
+                          + Add Set
+                        </Button>
+                        {sets.length > 1 && (
+                          <button
+                            onClick={() => handleCopyToAllSets(exercise.id)}
+                            className="text-sm text-accent hover:underline"
+                          >
+                            Copy Set 1 to all
+                          </button>
+                        )}
+                        <div className="flex-1" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setExpandedExerciseId(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleSaveExerciseSets(exercise.id)}
+                        >
+                          Save Sets
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       )}
 
@@ -548,8 +663,42 @@ export default function WorkoutEditorPage() {
       {showAddExerciseModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <Card className="w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <CardHeader className="border-b">
+            <CardHeader className="space-y-4">
               <CardTitle>Add Exercise from Library</CardTitle>
+              {/* Search Input */}
+              <div className="relative">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search exercises..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-border bg-bg-hover text-text-primary rounded-lg focus:outline-none focus:ring-2 focus:ring-accent placeholder-gray-500"
+                  autoFocus
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-text-primary"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="overflow-y-auto flex-1 p-4">
               <div className="space-y-2">
@@ -559,37 +708,58 @@ export default function WorkoutEditorPage() {
                     first.
                   </p>
                 ) : (
-                  exerciseLibrary.map((exercise) => (
-                    <div
-                      key={exercise.id}
-                      onClick={() => setSelectedExercise(exercise.id)}
-                      className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                        selectedExercise === exercise.id
-                          ? 'border-black bg-bg-hover'
-                          : 'border-border hover:border-gray-400'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-text-primary truncate">
-                            {exercise.name}
-                          </h4>
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {exercise.target_muscles.map((muscle) => (
-                              <Badge key={muscle} variant="default" className="text-xs">
-                                {muscle}
-                              </Badge>
-                            ))}
+                  (() => {
+                    const filteredExercises = exerciseLibrary.filter((exercise) => {
+                      const query = searchQuery.toLowerCase().trim()
+                      if (!query) return true
+                      return (
+                        exercise.name.toLowerCase().includes(query) ||
+                        exercise.target_muscles.some((muscle) =>
+                          muscle.toLowerCase().includes(query)
+                        )
+                      )
+                    })
+
+                    if (filteredExercises.length === 0) {
+                      return (
+                        <p className="text-center text-gray-400 py-8">
+                          No exercises match "{searchQuery}"
+                        </p>
+                      )
+                    }
+
+                    return filteredExercises.map((exercise) => (
+                      <div
+                        key={exercise.id}
+                        onClick={() => setSelectedExercise(exercise.id)}
+                        className={`p-4 border rounded-lg cursor-pointer transition-colors ${
+                          selectedExercise === exercise.id
+                            ? 'border-accent bg-bg-hover'
+                            : 'border-border hover:border-gray-400'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-text-primary truncate">
+                              {exercise.name}
+                            </h4>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {exercise.target_muscles.map((muscle) => (
+                                <Badge key={muscle} variant="default" className="text-xs">
+                                  {muscle}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 text-sm text-gray-400 shrink-0">
+                            {exercise.sets && <span>{exercise.sets} sets</span>}
+                            {exercise.reps && <span>{exercise.reps} reps</span>}
+                            {exercise.rest_seconds && <span>{exercise.rest_seconds}s rest</span>}
                           </div>
                         </div>
-                        <div className="flex flex-col items-end gap-1 text-sm text-gray-400 shrink-0">
-                          {exercise.sets && <span>{exercise.sets} sets</span>}
-                          {exercise.reps && <span>{exercise.reps} reps</span>}
-                          {exercise.rest_seconds && <span>{exercise.rest_seconds}s rest</span>}
-                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))
+                  })()
                 )}
               </div>
             </CardContent>
@@ -600,6 +770,7 @@ export default function WorkoutEditorPage() {
                   onClick={() => {
                     setShowAddExerciseModal(false)
                     setSelectedExercise(null)
+                    setSearchQuery('')
                   }}
                   className="flex-1"
                 >

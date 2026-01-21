@@ -38,11 +38,19 @@ export default function CoachExercisesPage() {
     video_id: '',
     target_muscles: [] as string[],
     assisting_muscles: [] as string[],
-    sets: '',
-    reps: '',
-    rest_seconds: '',
     notes: '',
   })
+
+  // Per-set configuration
+  interface SetConfig {
+    set_number: number
+    target_weight: string
+    target_reps: string
+    rest_seconds: string
+  }
+  const [setConfigs, setSetConfigs] = useState<SetConfig[]>([
+    { set_number: 1, target_weight: '', target_reps: '', rest_seconds: '60' }
+  ])
 
   const supabase = createClient()
 
@@ -241,16 +249,16 @@ export default function CoachExercisesPage() {
       video_id: videoId,
       target_muscles: formData.target_muscles,
       assisting_muscles: formData.assisting_muscles,
-      sets: formData.sets ? parseInt(formData.sets) : null,
-      reps: formData.reps || null,
-      rest_seconds: formData.rest_seconds ? parseInt(formData.rest_seconds) : null,
+      sets: setConfigs.length,
+      reps: setConfigs[0]?.target_reps || null,
+      rest_seconds: setConfigs[0]?.rest_seconds ? parseInt(setConfigs[0].rest_seconds) : null,
       notes: formData.notes || null,
       order_index: 0,
       workout_id: libraryWorkoutId,
     }
 
     if (editingExercise) {
-      // Update existing
+      // Update existing exercise
       const { error } = await supabase
         .from('exercises')
         .update(exerciseData as never)
@@ -260,32 +268,60 @@ export default function CoachExercisesPage() {
         console.error('Error updating exercise:', error)
         setToast({ message: `Error updating exercise: ${error.message}`, type: 'error', isOpen: true })
         setIsSubmitting(false)
-      } else {
-        setToast({ message: 'Exercise updated successfully!', type: 'success', isOpen: true })
-        resetForm()
-        fetchExercises()
-        setIsSubmitting(false)
+        return
       }
+
+      // Delete existing set configs and insert new ones
+      await supabase.from('exercise_sets').delete().eq('exercise_id', editingExercise.id)
+
+      const setData = setConfigs.map(config => ({
+        exercise_id: editingExercise.id,
+        set_number: config.set_number,
+        target_weight: config.target_weight ? parseFloat(config.target_weight) : null,
+        target_reps: config.target_reps ? parseInt(config.target_reps) : null,
+        rest_seconds: config.rest_seconds ? parseInt(config.rest_seconds) : null,
+      }))
+
+      await supabase.from('exercise_sets').insert(setData as any)
+
+      setToast({ message: 'Exercise updated successfully!', type: 'success', isOpen: true })
+      resetForm()
+      fetchExercises()
+      setIsSubmitting(false)
     } else {
-      // Create new
-      const { error } = await supabase
+      // Create new exercise
+      const { data: newExercise, error } = await supabase
         .from('exercises')
         .insert(exerciseData as never)
+        .select('id')
+        .single()
 
-      if (error) {
+      if (error || !newExercise) {
         console.error('Error creating exercise:', error)
-        setToast({ message: `Error creating exercise: ${error.message}`, type: 'error', isOpen: true })
+        setToast({ message: `Error creating exercise: ${error?.message}`, type: 'error', isOpen: true })
         setIsSubmitting(false)
-      } else {
-        setToast({ message: 'Exercise created successfully!', type: 'success', isOpen: true })
-        resetForm()
-        fetchExercises()
-        setIsSubmitting(false)
+        return
       }
+
+      // Insert set configs
+      const setData = setConfigs.map(config => ({
+        exercise_id: (newExercise as any).id,
+        set_number: config.set_number,
+        target_weight: config.target_weight ? parseFloat(config.target_weight) : null,
+        target_reps: config.target_reps ? parseInt(config.target_reps) : null,
+        rest_seconds: config.rest_seconds ? parseInt(config.rest_seconds) : null,
+      }))
+
+      await supabase.from('exercise_sets').insert(setData as any)
+
+      setToast({ message: 'Exercise created successfully!', type: 'success', isOpen: true })
+      resetForm()
+      fetchExercises()
+      setIsSubmitting(false)
     }
   }
 
-  const handleEdit = (exercise: Exercise) => {
+  const handleEdit = async (exercise: Exercise) => {
     setEditingExercise(exercise)
     setFormData({
       name: exercise.name,
@@ -294,11 +330,36 @@ export default function CoachExercisesPage() {
       video_id: exercise.video_id,
       target_muscles: exercise.target_muscles,
       assisting_muscles: exercise.assisting_muscles || [],
-      sets: exercise.sets?.toString() || '',
-      reps: exercise.reps || '',
-      rest_seconds: exercise.rest_seconds?.toString() || '',
       notes: exercise.notes || '',
     })
+
+    // Fetch existing set configs
+    const { data: existingSets } = await supabase
+      .from('exercise_sets')
+      .select('*')
+      .eq('exercise_id', exercise.id)
+      .order('set_number', { ascending: true })
+
+    if (existingSets && existingSets.length > 0) {
+      setSetConfigs(existingSets.map((s: any) => ({
+        set_number: s.set_number,
+        target_weight: s.target_weight?.toString() || '',
+        target_reps: s.target_reps?.toString() || '',
+        rest_seconds: s.rest_seconds?.toString() || '60',
+      })))
+    } else {
+      // Fallback to exercise defaults
+      const numSets = exercise.sets || 1
+      setSetConfigs(
+        Array.from({ length: numSets }, (_, i) => ({
+          set_number: i + 1,
+          target_weight: '',
+          target_reps: exercise.reps?.toString() || '',
+          rest_seconds: exercise.rest_seconds?.toString() || '60',
+        }))
+      )
+    }
+
     setShowForm(true)
   }
 
@@ -324,11 +385,9 @@ export default function CoachExercisesPage() {
       video_id: '',
       target_muscles: [],
       assisting_muscles: [],
-      sets: '',
-      reps: '',
-      rest_seconds: '',
       notes: '',
     })
+    setSetConfigs([{ set_number: 1, target_weight: '', target_reps: '', rest_seconds: '60' }])
     setEditingExercise(null)
     setShowForm(false)
   }
@@ -413,25 +472,112 @@ export default function CoachExercisesPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-3 gap-4">
-                <Input
-                  label="Sets"
-                  type="number"
-                  value={formData.sets}
-                  onChange={e => setFormData({ ...formData, sets: e.target.value })}
-                />
-                <Input
-                  label="Reps"
-                  value={formData.reps}
-                  onChange={e => setFormData({ ...formData, reps: e.target.value })}
-                  placeholder="e.g., 8-12"
-                />
-                <Input
-                  label="Rest (seconds)"
-                  type="number"
-                  value={formData.rest_seconds}
-                  onChange={e => setFormData({ ...formData, rest_seconds: e.target.value })}
-                />
+              {/* Per-Set Configuration */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Sets Configuration
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const lastSet = setConfigs[setConfigs.length - 1]
+                      setSetConfigs([
+                        ...setConfigs,
+                        {
+                          set_number: setConfigs.length + 1,
+                          target_weight: lastSet?.target_weight || '',
+                          target_reps: lastSet?.target_reps || '',
+                          rest_seconds: lastSet?.rest_seconds || '60',
+                        }
+                      ])
+                    }}
+                  >
+                    + Add Set
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {setConfigs.map((config, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 bg-bg-hover rounded-lg">
+                      <div className="w-10 h-10 flex items-center justify-center rounded-full bg-bg-main text-sm font-bold text-text-primary">
+                        {config.set_number}
+                      </div>
+                      <div className="flex-1 grid grid-cols-3 gap-3">
+                        <Input
+                          label="Weight (kg)"
+                          type="number"
+                          value={config.target_weight}
+                          onChange={e => {
+                            const updated = [...setConfigs]
+                            updated[index].target_weight = e.target.value
+                            setSetConfigs(updated)
+                          }}
+                          placeholder="kg"
+                        />
+                        <Input
+                          label="Reps"
+                          type="number"
+                          value={config.target_reps}
+                          onChange={e => {
+                            const updated = [...setConfigs]
+                            updated[index].target_reps = e.target.value
+                            setSetConfigs(updated)
+                          }}
+                          placeholder="reps"
+                        />
+                        <Input
+                          label="Rest (sec)"
+                          type="number"
+                          value={config.rest_seconds}
+                          onChange={e => {
+                            const updated = [...setConfigs]
+                            updated[index].rest_seconds = e.target.value
+                            setSetConfigs(updated)
+                          }}
+                          placeholder="60"
+                        />
+                      </div>
+                      {setConfigs.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = setConfigs
+                              .filter((_, i) => i !== index)
+                              .map((s, i) => ({ ...s, set_number: i + 1 }))
+                            setSetConfigs(updated)
+                          }}
+                          className="text-red-500 hover:text-red-700 p-2"
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Copy from previous set helper */}
+                {setConfigs.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstSet = setConfigs[0]
+                      setSetConfigs(setConfigs.map(s => ({
+                        ...s,
+                        target_weight: firstSet.target_weight,
+                        target_reps: firstSet.target_reps,
+                        rest_seconds: firstSet.rest_seconds,
+                      })))
+                    }}
+                    className="text-sm text-accent hover:underline"
+                  >
+                    Copy Set 1 values to all sets
+                  </button>
+                )}
               </div>
 
               <div>

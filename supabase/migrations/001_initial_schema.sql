@@ -30,6 +30,18 @@ create table user_set_logs (
 );
 
 
+create table exercise_sets (
+  id uuid primary key default gen_random_uuid(),
+  exercise_id uuid references exercises(id) on delete cascade,
+  set_number int not null,
+  target_weight decimal,
+  target_reps int,
+  rest_seconds int default 60,
+  created_at timestamp with time zone default now(),
+  unique(exercise_id, set_number)
+);
+
+
 -- =============================================
 -- COACHES TABLE
 -- =============================================
