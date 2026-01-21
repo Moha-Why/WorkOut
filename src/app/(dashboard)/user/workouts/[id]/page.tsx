@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/useAuth'
 import { createClient } from '@/lib/supabase/client'
-import { Exercise, Workout, SetLog } from '@/types'
+import { Exercise, Workout, SetLog, ExerciseSet } from '@/types'
 import { ExerciseLogger } from '@/components/workouts/ExerciseLogger'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -43,6 +43,9 @@ export default function WorkoutPlayerPage() {
 
   // Current session logs
   const [sessionLogs, setSessionLogs] = useState<SetLog[]>([])
+
+  // Exercise set configurations
+  const [exerciseSetsMap, setExerciseSetsMap] = useState<Record<string, ExerciseSet[]>>({})
 
   // Track if workout was already completed today
   const [workoutAlreadyCompleted, setWorkoutAlreadyCompleted] = useState(false)
@@ -145,8 +148,27 @@ export default function WorkoutPlayerPage() {
       setExercises(exerciseData || [])
       setIsOfflineMode(false)
 
-      // Expand first exercise by default
+      // Fetch exercise sets for all exercises
       if (exerciseData && exerciseData.length > 0) {
+        const exerciseIds = exerciseData.map((e: any) => e.id)
+        const { data: setsData } = await supabase
+          .from('exercise_sets')
+          .select('*')
+          .in('exercise_id', exerciseIds)
+          .order('set_number', { ascending: true })
+
+        if (setsData) {
+          const setsMap: Record<string, ExerciseSet[]> = {}
+          for (const set of setsData as any[]) {
+            if (!setsMap[set.exercise_id]) {
+              setsMap[set.exercise_id] = []
+            }
+            setsMap[set.exercise_id].push(set as ExerciseSet)
+          }
+          setExerciseSetsMap(setsMap)
+        }
+
+        // Expand first exercise by default
         setExpandedExerciseId((exerciseData[0] as any).id)
       }
 
@@ -465,6 +487,7 @@ export default function WorkoutPlayerPage() {
           <ExerciseLogger
             key={exercise.id}
             exercise={exercise}
+            exerciseSets={exerciseSetsMap[exercise.id] || []}
             previousLogs={previousLogs[exercise.id]}
             completedSets={completedSets[exercise.id] || new Set()}
             onSetComplete={handleSetComplete}

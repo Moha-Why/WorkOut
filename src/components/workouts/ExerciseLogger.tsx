@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Exercise, SetLog } from '@/types'
+import { Exercise, SetLog, ExerciseSet } from '@/types'
 import { SetLogger } from './SetLogger'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils/cn'
 
 interface ExerciseLoggerProps {
   exercise: Exercise
+  exerciseSets?: ExerciseSet[]
   previousLogs?: SetLog[]
   onSetComplete: (exerciseId: string, setNumber: number, weight: number | null, reps: number) => void
   completedSets: Set<number>
@@ -21,6 +22,7 @@ interface ExerciseLoggerProps {
 
 export function ExerciseLogger({
   exercise,
+  exerciseSets = [],
   previousLogs = [],
   onSetComplete,
   completedSets,
@@ -28,16 +30,43 @@ export function ExerciseLogger({
   isExpanded = false,
   onToggleExpand,
 }: ExerciseLoggerProps) {
-  const totalSets = exercise.sets || 3
-  const targetReps = exercise.reps ? Number(exercise.reps) : null
-  const restSeconds = exercise.rest_seconds || 60
+  // Use exercise_sets if available, otherwise fall back to exercise defaults
+  const totalSets = exerciseSets.length > 0 ? exerciseSets.length : (exercise.sets || 3)
+
+  // Get set config for current set
+  const getSetConfig = (setNumber: number): ExerciseSet | undefined => {
+    return exerciseSets.find(s => s.set_number === setNumber)
+  }
+
+  // Get target reps for a specific set
+  const getTargetReps = (setNumber: number): number | null => {
+    const setConfig = getSetConfig(setNumber)
+    if (setConfig?.target_reps) return setConfig.target_reps
+    return exercise.reps ? Number(exercise.reps) : null
+  }
+
+  // Get target weight for a specific set
+  const getTargetWeight = (setNumber: number): number | null => {
+    const setConfig = getSetConfig(setNumber)
+    return setConfig?.target_weight ?? null
+  }
+
+  // Get rest seconds for a specific set
+  const getRestSeconds = (setNumber: number): number => {
+    const setConfig = getSetConfig(setNumber)
+    return setConfig?.rest_seconds || exercise.rest_seconds || 60
+  }
+
+  // For display in header
+  const defaultReps = exerciseSets[0]?.target_reps || (exercise.reps ? Number(exercise.reps) : null)
+  const defaultRest = exerciseSets[0]?.rest_seconds || exercise.rest_seconds || 60
 
   // Current set to show (next uncompleted set)
   const [currentSetNumber, setCurrentSetNumber] = useState(1)
 
   // Rest timer state
   const [isResting, setIsResting] = useState(false)
-  const [restTimeLeft, setRestTimeLeft] = useState(restSeconds)
+  const [restTimeLeft, setRestTimeLeft] = useState(getRestSeconds(1))
 
   // Update current set when completedSets changes
   useEffect(() => {
@@ -58,7 +87,6 @@ export function ExerciseLogger({
 
     if (restTimeLeft <= 0) {
       setIsResting(false)
-      setRestTimeLeft(restSeconds)
       return
     }
 
@@ -67,7 +95,7 @@ export function ExerciseLogger({
     }, 1000)
 
     return () => clearInterval(timer)
-  }, [isResting, restTimeLeft, restSeconds])
+  }, [isResting, restTimeLeft])
 
   // Get previous log for a specific set
   const getPreviousLog = (setNumber: number): SetLog | undefined => {
@@ -77,20 +105,21 @@ export function ExerciseLogger({
   const handleSetComplete = (weight: number | null, reps: number) => {
     onSetComplete(exercise.id, currentSetNumber, weight, reps)
 
-    // Start rest timer if not the last set
+    // Start rest timer if not the last set (use current set's rest time)
     if (currentSetNumber < totalSets) {
       setIsResting(true)
-      setRestTimeLeft(restSeconds)
+      setRestTimeLeft(getRestSeconds(currentSetNumber))
     }
   }
 
   const skipRest = () => {
     setIsResting(false)
-    setRestTimeLeft(restSeconds)
   }
 
   const completedCount = completedSets.size
   const isAllCompleted = completedCount === totalSets
+  const currentTargetReps = getTargetReps(currentSetNumber)
+  const currentTargetWeight = getTargetWeight(currentSetNumber)
   const prevLog = getPreviousLog(currentSetNumber)
 
   // Format time as MM:SS
@@ -134,8 +163,8 @@ export function ExerciseLogger({
           <div>
             <h3 className="font-semibold text-text-primary">{exercise.name}</h3>
             <p className="text-sm text-gray-500">
-              {totalSets} sets × {targetReps || '?'} reps
-              {restSeconds && ` • ${restSeconds}s rest`}
+              {totalSets} sets × {defaultReps || '?'} reps
+              {defaultRest && ` • ${defaultRest}s rest`}
             </p>
           </div>
         </div>
@@ -227,7 +256,8 @@ export function ExerciseLogger({
               {/* Current set logger */}
               <SetLogger
                 setNumber={currentSetNumber}
-                targetReps={targetReps}
+                targetReps={currentTargetReps}
+                targetWeight={currentTargetWeight}
                 previousWeight={prevLog?.weight}
                 previousReps={prevLog?.reps}
                 isCompleted={completedSets.has(currentSetNumber)}

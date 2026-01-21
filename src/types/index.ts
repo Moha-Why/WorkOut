@@ -72,6 +72,17 @@ export interface CoachStats {
   avg_completion_rate: number
 }
 
+// Exercise set configuration (per-set targets)
+export interface ExerciseSet {
+  id: string
+  exercise_id: string
+  set_number: number
+  target_weight: number | null
+  target_reps: number | null
+  rest_seconds: number | null
+  created_at?: string
+}
+
 // Set logging types
 export interface SetLog {
   id: string
