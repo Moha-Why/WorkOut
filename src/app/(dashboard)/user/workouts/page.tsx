@@ -146,7 +146,7 @@ export default function UserWorkoutsPage() {
     try {
       const workoutsToDownload = workouts
         .filter((w) => !downloadedWorkoutIds.has(w.id))
-        .map((w) => ({ workout: w, exercises: w.exercises }))
+        .map((w) => ({ workout: w, exercises: w.exercises, isCompleted: w.is_completed || false }))
 
       if (workoutsToDownload.length === 0) {
         setToast({
@@ -304,26 +304,28 @@ export default function UserWorkoutsPage() {
               onClick={handleDownloadAll}
               disabled={isDownloading || notDownloadedCount === 0}
               variant={notDownloadedCount === 0 ? 'outline' : 'primary'}
-              className={notDownloadedCount === 0 ? 'text-green-600 border-green-600' : ''}
+              className={`whitespace-nowrap ${notDownloadedCount === 0 ? 'text-green-600 border-green-600 w-1/2' : 'w-1/2'}`}
+              size="sm"
             >
               {isDownloading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                  Downloading...
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin sm:mr-2" />
+                  <span className="hidden sm:inline">Downloading...</span>
                 </>
               ) : notDownloadedCount === 0 ? (
                 <>
-                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-4 h-4 sm:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  All Downloaded
+                  <span className="hidden sm:inline">All Downloaded</span>
                 </>
               ) : (
                 <>
-                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-4 h-4 sm:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  Download All ({notDownloadedCount})
+                  <span className="hidden sm:inline">Download All ({notDownloadedCount})</span>
+                  <span className="sm:hidden">{notDownloadedCount}</span>
                 </>
               )}
             </Button>
@@ -332,11 +334,13 @@ export default function UserWorkoutsPage() {
                 onClick={() => setShowDeleteAllConfirm(true)}
                 variant="danger"
                 disabled={isDeleting}
+                size="sm"
+                className="whitespace-nowrap w-1/2"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-4 h-4 sm:mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Delete Downloads
+                <span className="hidden sm:inline">Delete Downloads</span>
               </Button>
             )}
           </div>

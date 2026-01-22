@@ -27,13 +27,17 @@ export async function cacheExercise(
 // Cache a workout with all exercises
 export async function cacheWorkout(
   workout: Workout,
-  exercises: Exercise[]
+  exercises: Exercise[],
+  isCompleted: boolean = false,
+  completedAt: string | null = null
 ): Promise<void> {
   const offlineWorkout: OfflineWorkout = {
     id: workout.id,
     data: workout,
     exercises,
     cached_at: Date.now(),
+    is_completed: isCompleted,
+    completed_at: completedAt,
   }
 
   await saveWorkout(offlineWorkout)

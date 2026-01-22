@@ -1,15 +1,26 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
-import { getAllWorkouts, getStorageEstimate, clearAllOfflineData } from '@/lib/offline/db'
+import {
+  getAllWorkouts,
+  getStorageEstimate,
+  clearAllOfflineData,
+  savePendingCompletion,
+  getPendingCompletions,
+  markCompletionSynced,
+  updateWorkoutCompletion,
+} from '@/lib/offline/db'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
-import { OfflineWorkout } from '@/types/offline'
+import { Toast } from '@/components/ui/Toast'
+import { OfflineWorkout, PendingWorkoutCompletion } from '@/types/offline'
 import { Exercise } from '@/types'
+import { useAuth } from '@/hooks/useAuth'
+import { createClient } from '@/lib/supabase/client'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -27,6 +38,7 @@ function formatDate(timestamp: number): string {
 }
 
 export default function OfflinePage() {
+  const { profile } = useAuth()
   const [isOnline, setIsOnline] = useState(true)
   const [downloadedWorkouts, setDownloadedWorkouts] = useState<OfflineWorkout[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -38,12 +50,53 @@ export default function OfflinePage() {
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0)
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isCompletingWorkout, setIsCompletingWorkout] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
+    message: '',
+    type: 'success',
+    isOpen: false,
+  })
+
+  // Sync pending completions when online
+  const syncPendingCompletions = useCallback(async () => {
+    if (!navigator.onLine) return
+
+    try {
+      const pending = await getPendingCompletions()
+      if (pending.length === 0) return
+
+      const supabase = createClient()
+
+      for (const completion of pending) {
+        const { error } = await supabase.from('user_workout_progress').insert({
+          user_id: completion.user_id,
+          workout_id: completion.workout_id,
+          completed_at: completion.completed_at,
+        } as any)
+
+        if (!error) {
+          await markCompletionSynced(completion.id)
+        }
+      }
+
+      setToast({
+        message: 'Offline completions synced!',
+        type: 'success',
+        isOpen: true,
+      })
+    } catch (error) {
+      console.error('Error syncing pending completions:', error)
+    }
+  }, [])
 
   useEffect(() => {
     setIsMounted(true)
     setIsOnline(navigator.onLine)
 
-    const handleOnline = () => setIsOnline(true)
+    const handleOnline = () => {
+      setIsOnline(true)
+      syncPendingCompletions()
+    }
     const handleOffline = () => setIsOnline(false)
 
     window.addEventListener('online', handleOnline)
@@ -51,11 +104,16 @@ export default function OfflinePage() {
 
     loadOfflineContent()
 
+    // Try to sync on mount if online
+    if (navigator.onLine) {
+      syncPendingCompletions()
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [])
+  }, [syncPendingCompletions])
 
   const loadOfflineContent = async () => {
     try {
@@ -101,6 +159,85 @@ export default function OfflinePage() {
     } finally {
       setIsDeleting(false)
       setShowDeleteAllConfirm(false)
+    }
+  }
+
+  const handleCompleteWorkout = async () => {
+    if (!selectedWorkout || !profile) return
+    if (selectedWorkout.is_completed) return
+
+    setIsCompletingWorkout(true)
+    const completedAt = new Date().toISOString()
+
+    try {
+      // Update local offline workout status
+      await updateWorkoutCompletion(selectedWorkout.id, true, completedAt)
+
+      // Update local state
+      setSelectedWorkout({
+        ...selectedWorkout,
+        is_completed: true,
+        completed_at: completedAt,
+      })
+
+      setDownloadedWorkouts((prev) =>
+        prev.map((w) =>
+          w.id === selectedWorkout.id
+            ? { ...w, is_completed: true, completed_at: completedAt }
+            : w
+        )
+      )
+
+      if (navigator.onLine) {
+        // If online, save directly to Supabase
+        const supabase = createClient()
+        const { error } = await supabase.from('user_workout_progress').insert({
+          user_id: profile.id,
+          workout_id: selectedWorkout.id,
+          completed_at: completedAt,
+        } as any)
+
+        if (error) {
+          // Save to pending if insert fails
+          await savePendingCompletion({
+            id: crypto.randomUUID(),
+            workout_id: selectedWorkout.id,
+            user_id: profile.id,
+            completed_at: completedAt,
+            synced: false,
+          })
+        }
+
+        setToast({
+          message: 'Workout completed!',
+          type: 'success',
+          isOpen: true,
+        })
+      } else {
+        // Offline: save to pending completions for later sync
+        await savePendingCompletion({
+          id: crypto.randomUUID(),
+          workout_id: selectedWorkout.id,
+          user_id: profile.id,
+          completed_at: completedAt,
+          synced: false,
+        })
+
+        setToast({
+          message: 'Workout completed! Will sync when online.',
+          type: 'info',
+          isOpen: true,
+        })
+      }
+    } catch (error) {
+      console.error('Error completing workout:', error)
+      setToast({
+        message: 'Error completing workout',
+        type: 'error',
+        isOpen: true,
+      })
+    } finally {
+      setIsCompletingWorkout(false)
     }
   }
 
@@ -151,12 +288,21 @@ export default function OfflinePage() {
             <div className="flex items-center gap-2 mt-2">
               <Badge variant="info" className="text-xs">Week {workout.week_number}</Badge>
               <Badge variant="default" className="text-xs">Day {workout.day_number}</Badge>
-              <Badge variant="warning" className="text-xs flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Offline Preview
-              </Badge>
+              {selectedWorkout.is_completed ? (
+                <Badge variant="success" className="text-xs flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Completed
+                </Badge>
+              ) : (
+                <Badge variant="warning" className="text-xs flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Offline
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -262,20 +408,61 @@ export default function OfflinePage() {
                 </Button>
               </div>
 
-              {/* Info banner */}
-              <div className="bg-accent/10 border border-accent/30 rounded-xl p-4">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div>
-                    <p className="text-sm text-accent font-medium">Preview Mode</p>
-                    <p className="text-xs text-accent/70 mt-0.5">
-                      Go online to track your progress and complete workouts.
-                    </p>
+              {/* Complete Workout Button */}
+              {selectedWorkout.is_completed ? (
+                <div className="bg-success/10 border border-success/30 rounded-xl p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-success/20 rounded-full flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-sm text-success font-medium">Workout Completed</p>
+                      <p className="text-xs text-success/70 mt-0.5">
+                        {selectedWorkout.completed_at
+                          ? `Completed on ${new Date(selectedWorkout.completed_at).toLocaleDateString()}`
+                          : 'Great job!'}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : profile ? (
+                <Button
+                  onClick={handleCompleteWorkout}
+                  variant="primary"
+                  className="w-full py-4 text-lg font-bold"
+                  disabled={isCompletingWorkout}
+                >
+                  {isCompletingWorkout ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                      Completing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Mark Workout Complete
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <div className="bg-accent/10 border border-accent/30 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm text-accent font-medium">Preview Mode</p>
+                      <p className="text-xs text-accent/70 mt-0.5">
+                        Sign in to mark workouts as complete.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -402,10 +589,18 @@ export default function OfflinePage() {
                     <CardContent className="p-4">
                       <div className="flex items-center gap-4">
                         {/* Icon */}
-                        <div className="w-12 h-12 bg-accent/20 rounded-xl flex items-center justify-center shrink-0">
-                          <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                          offlineWorkout.is_completed ? 'bg-success/20' : 'bg-accent/20'
+                        }`}>
+                          {offlineWorkout.is_completed ? (
+                            <svg className="w-6 h-6 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="w-6 h-6 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                          )}
                         </div>
 
                         {/* Content */}
@@ -417,6 +612,14 @@ export default function OfflinePage() {
                             <Badge variant="default" className="text-xs">
                               Day {workout.day_number}
                             </Badge>
+                            {offlineWorkout.is_completed && (
+                              <Badge variant="success" className="text-xs flex items-center gap-1">
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Done
+                              </Badge>
+                            )}
                           </div>
                           <h3 className="font-semibold text-text-primary truncate">
                             {workout.name}
@@ -424,7 +627,9 @@ export default function OfflinePage() {
                           <p className="text-sm text-text-primary/50">
                             {exerciseCount} {exerciseCount === 1 ? 'exercise' : 'exercises'}
                             <span className="mx-2">•</span>
-                            Downloaded {formatDate(offlineWorkout.cached_at)}
+                            {offlineWorkout.is_completed && offlineWorkout.completed_at
+                              ? `Completed ${formatDate(new Date(offlineWorkout.completed_at).getTime())}`
+                              : `Downloaded ${formatDate(offlineWorkout.cached_at)}`}
                           </p>
                         </div>
 
@@ -503,6 +708,14 @@ export default function OfflinePage() {
         confirmText={isDeleting ? 'Deleting...' : 'Delete All'}
         cancelText="Cancel"
         variant="danger"
+      />
+
+      {/* Toast */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isOpen={toast.isOpen}
+        onClose={() => setToast({ ...toast, isOpen: false })}
       />
     </div>
   )

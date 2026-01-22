@@ -14,6 +14,8 @@ interface DownloadButtonProps {
   size?: 'sm' | 'md' | 'lg'
   showSize?: boolean
   onDownloadComplete?: () => void
+  isCompleted?: boolean
+  completedAt?: string | null
 }
 
 export function DownloadButton({
@@ -22,6 +24,8 @@ export function DownloadButton({
   size = 'sm',
   showSize = false,
   onDownloadComplete,
+  isCompleted = false,
+  completedAt = null,
 }: DownloadButtonProps) {
   const [isDownloaded, setIsDownloaded] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -74,7 +78,7 @@ export function DownloadButton({
     try {
       const success = await downloadWorkout(workout, exercises, (prog) => {
         setProgress(prog)
-      })
+      }, isCompleted, completedAt)
 
       if (success) {
         setIsDownloaded(true)

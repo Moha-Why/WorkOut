@@ -4,6 +4,7 @@ import {
   OfflineWorkout,
   OfflineProgram,
   CachedVideo,
+  PendingWorkoutCompletion,
 } from '@/types/offline'
 
 interface WorkoutDB {
@@ -27,10 +28,15 @@ interface WorkoutDB {
     value: CachedVideo
     indexes: { 'by-provider': string; 'by-cached': number }
   }
+  pending_completions: {
+    key: string
+    value: PendingWorkoutCompletion
+    indexes: { 'by-workout': string; 'by-synced': number }
+  }
 }
 
 const DB_NAME = 'workout-app-db'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 let dbInstance: IDBPDatabase<WorkoutDB> | null = null
 
@@ -78,6 +84,13 @@ export async function getDB(): Promise<IDBPDatabase<WorkoutDB>> {
       // Remove pending_progress store if it exists (cleanup)
       if (db.objectStoreNames.contains('pending_progress')) {
         db.deleteObjectStore('pending_progress')
+      }
+
+      // Pending workout completions store
+      if (!db.objectStoreNames.contains('pending_completions')) {
+        const completionsStore = db.createObjectStore('pending_completions', { keyPath: 'id' })
+        completionsStore.createIndex('by-workout', 'workout_id')
+        completionsStore.createIndex('by-synced', 'synced')
       }
     },
   })
@@ -165,11 +178,50 @@ export async function deleteCachedVideo(videoId: string) {
   await db.delete('cached_videos', videoId)
 }
 
+// Pending workout completion operations
+export async function savePendingCompletion(completion: PendingWorkoutCompletion) {
+  const db = await getDB()
+  await db.put('pending_completions', completion)
+}
+
+export async function getPendingCompletions(): Promise<PendingWorkoutCompletion[]> {
+  if (!isBrowser) return []
+  const db = await getDB()
+  const all = await db.getAll('pending_completions')
+  return all.filter((c) => !c.synced)
+}
+
+export async function markCompletionSynced(id: string) {
+  const db = await getDB()
+  const completion = await db.get('pending_completions', id)
+  if (completion) {
+    await db.put('pending_completions', { ...completion, synced: true })
+  }
+}
+
+export async function deletePendingCompletion(id: string) {
+  const db = await getDB()
+  await db.delete('pending_completions', id)
+}
+
+// Update workout completion status in offline storage
+export async function updateWorkoutCompletion(workoutId: string, isCompleted: boolean, completedAt: string | null) {
+  const db = await getDB()
+  const workout = await db.get('workouts', workoutId)
+  if (workout) {
+    await db.put('workouts', {
+      ...workout,
+      is_completed: isCompleted,
+      completed_at: completedAt,
+    })
+  }
+}
+
 // Utility: Clear all offline data
 export async function clearAllOfflineData() {
   const db = await getDB()
   const tx = db.transaction(
-    ['exercises', 'workouts', 'programs', 'cached_videos'],
+    ['exercises', 'workouts', 'programs', 'cached_videos', 'pending_completions'],
     'readwrite'
   )
 
@@ -178,6 +230,7 @@ export async function clearAllOfflineData() {
     tx.objectStore('workouts').clear(),
     tx.objectStore('programs').clear(),
     tx.objectStore('cached_videos').clear(),
+    tx.objectStore('pending_completions').clear(),
   ])
 
   await tx.done

@@ -7,7 +7,9 @@ import { getVideoEmbedUrl } from '../utils/video'
 export async function downloadWorkout(
   workout: Workout,
   exercises: Exercise[],
-  onProgress?: (progress: DownloadProgress) => void
+  onProgress?: (progress: DownloadProgress) => void,
+  isCompleted: boolean = false,
+  completedAt: string | null = null
 ): Promise<boolean> {
   const progress: DownloadProgress = {
     workout_id: workout.id,
@@ -19,8 +21,8 @@ export async function downloadWorkout(
   }
 
   try {
-    // Cache workout metadata first
-    await cacheWorkout(workout, exercises)
+    // Cache workout metadata first (with completion status)
+    await cacheWorkout(workout, exercises, isCompleted, completedAt)
     progress.downloaded_exercises = exercises.length
     onProgress?.(progress)
 
@@ -68,16 +70,16 @@ export async function downloadWorkout(
 
 // Download multiple workouts
 export async function downloadWorkouts(
-  workouts: Array<{ workout: Workout; exercises: Exercise[] }>,
+  workouts: Array<{ workout: Workout; exercises: Exercise[]; isCompleted?: boolean; completedAt?: string | null }>,
   onProgress?: (workoutId: string, progress: DownloadProgress) => void
 ): Promise<{ success: number; failed: number }> {
   let success = 0
   let failed = 0
 
-  for (const { workout, exercises } of workouts) {
+  for (const { workout, exercises, isCompleted, completedAt } of workouts) {
     const result = await downloadWorkout(workout, exercises, (progress) => {
       onProgress?.(workout.id, progress)
-    })
+    }, isCompleted || false, completedAt || null)
 
     if (result) {
       success++
