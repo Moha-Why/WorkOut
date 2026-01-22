@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Toast } from '@/components/ui/Toast'
 import { downloadWorkouts } from '@/lib/offline/download'
-import { getAllWorkouts } from '@/lib/offline/db'
+import { getAllWorkouts, clearAllOfflineData } from '@/lib/offline/db'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import Link from 'next/link'
 
 interface WorkoutWithExercises extends Workout {
@@ -36,6 +37,8 @@ export default function UserWorkoutsPage() {
     type: 'success',
     isOpen: false,
   })
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     const fetchWorkouts = async () => {
@@ -186,6 +189,29 @@ export default function UserWorkoutsPage() {
     }
   }
 
+  const handleDeleteAllDownloads = async () => {
+    setIsDeleting(true)
+    try {
+      await clearAllOfflineData()
+      setDownloadedWorkoutIds(new Set())
+      setToast({
+        message: 'All downloaded workouts deleted',
+        type: 'success',
+        isOpen: true,
+      })
+    } catch (error) {
+      console.error('Error deleting downloads:', error)
+      setToast({
+        message: 'Error deleting downloads',
+        type: 'error',
+        isOpen: true,
+      })
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteAllConfirm(false)
+    }
+  }
+
   const notDownloadedCount = workouts.filter((w) => !downloadedWorkoutIds.has(w.id)).length
 
   if (isLoading) {
@@ -271,35 +297,49 @@ export default function UserWorkoutsPage() {
           </p>
         </div>
 
-        {/* Download All Button */}
+        {/* Download/Delete Buttons */}
         {workouts.length > 0 && (
-          <Button
-            onClick={handleDownloadAll}
-            disabled={isDownloading || notDownloadedCount === 0}
-            variant={notDownloadedCount === 0 ? 'outline' : 'primary'}
-            className={notDownloadedCount === 0 ? 'text-green-600 border-green-600' : ''}
-          >
-            {isDownloading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Downloading...
-              </>
-            ) : notDownloadedCount === 0 ? (
-              <>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={handleDownloadAll}
+              disabled={isDownloading || notDownloadedCount === 0}
+              variant={notDownloadedCount === 0 ? 'outline' : 'primary'}
+              className={notDownloadedCount === 0 ? 'text-green-600 border-green-600' : ''}
+            >
+              {isDownloading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Downloading...
+                </>
+              ) : notDownloadedCount === 0 ? (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  All Downloaded
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download All ({notDownloadedCount})
+                </>
+              )}
+            </Button>
+            {downloadedWorkoutIds.size > 0 && (
+              <Button
+                onClick={() => setShowDeleteAllConfirm(true)}
+                variant="danger"
+                disabled={isDeleting}
+              >
                 <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                All Downloaded
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Download All ({notDownloadedCount})
-              </>
+                Delete Downloads
+              </Button>
             )}
-          </Button>
+          </div>
         )}
       </div>
 
@@ -363,6 +403,18 @@ export default function UserWorkoutsPage() {
         type={toast.type}
         isOpen={toast.isOpen}
         onClose={() => setToast({ ...toast, isOpen: false })}
+      />
+
+      {/* Delete All Downloads Confirmation */}
+      <ConfirmDialog
+        isOpen={showDeleteAllConfirm}
+        onClose={() => setShowDeleteAllConfirm(false)}
+        onConfirm={handleDeleteAllDownloads}
+        title="Delete All Downloads"
+        message={`Are you sure you want to delete all ${downloadedWorkoutIds.size} downloaded workout${downloadedWorkoutIds.size === 1 ? '' : 's'}? You'll need to download them again for offline use.`}
+        confirmText={isDeleting ? 'Deleting...' : 'Delete All'}
+        cancelText="Cancel"
+        variant="danger"
       />
     </div>
   )
