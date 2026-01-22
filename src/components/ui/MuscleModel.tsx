@@ -28,16 +28,18 @@ const MUSCLE_ID_MAP: Record<string, Muscle> = {
   'forearm': 'forearm',
   'front-delts': 'front-deltoids',
   'front-deltoids': 'front-deltoids',
+  'front-shoulders': 'front-deltoids',
   'shoulders': 'front-deltoids',
   'deltoids': 'front-deltoids',
   'quadriceps': 'quadriceps',
   'quads': 'quadriceps',
   'adductors': 'adductor',
   'adductor': 'adductor',
+  'calves-front': 'calves',
 
   // Back muscles
   'back': 'upper-back',
-  'upper-back': 'upper-back',
+  'upper-back': 'trapezius',
   'lats': 'upper-back',
   'latissimus': 'upper-back',
   'traps': 'trapezius',
@@ -51,29 +53,38 @@ const MUSCLE_ID_MAP: Record<string, Muscle> = {
   'gluteus': 'gluteal',
   'gluteal': 'gluteal',
   'calves': 'calves',
+  'calves-back': 'calves',
   'triceps': 'triceps',
   'rear-delts': 'back-deltoids',
+  'rear-shoulders': 'back-deltoids',
   'back-deltoids': 'back-deltoids',
 }
 
-// Reverse map for click handling
-const REVERSE_MUSCLE_MAP: Record<string, string> = {
+// Reverse map for click handling - maps library muscle name to our DB muscle ID
+// Some muscles have different IDs for front/back views
+const REVERSE_MUSCLE_MAP_FRONT: Record<string, string> = {
   'chest': 'chest',
   'abs': 'abs',
   'obliques': 'obliques',
   'biceps': 'biceps',
   'forearm': 'forearms',
-  'front-deltoids': 'shoulders',
-  'quadriceps': 'quadriceps',
+  'front-deltoids': 'front-shoulders',
+  'quadriceps': 'quads',
   'adductor': 'adductors',
-  'upper-back': 'back',
-  'trapezius': 'traps',
+  'calves': 'calves-front',
+}
+
+const REVERSE_MUSCLE_MAP_BACK: Record<string, string> = {
+  'upper-back': 'lats',
+  'trapezius': 'upper-back',
   'lower-back': 'lower-back',
   'hamstring': 'hamstrings',
   'gluteal': 'glutes',
-  'calves': 'calves',
+  'calves': 'calves-back',
   'triceps': 'triceps',
-  'back-deltoids': 'rear-delts',
+  'back-deltoids': 'rear-shoulders',
+  'obliques': 'obliques',
+  'neck': 'upper-back',
 }
 
 export function MuscleModel({
@@ -163,8 +174,9 @@ export function MuscleModel({
   const handleModelClick = ({ muscle }: { muscle: string }) => {
     if (!interactive) return
 
-    // Map back to our muscle ID system
-    const ourMuscleId = REVERSE_MUSCLE_MAP[muscle] || muscle
+    // Map back to our muscle ID system based on current view
+    const reverseMap = selectedView === 'front' ? REVERSE_MUSCLE_MAP_FRONT : REVERSE_MUSCLE_MAP_BACK
+    const ourMuscleId = reverseMap[muscle] || muscle
 
     // Find matching muscle in our database
     const matchingMuscle = muscles.find(
