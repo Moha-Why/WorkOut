@@ -21,6 +21,17 @@ export interface OfflineWorkout {
   data: Workout
   exercises: Exercise[]
   cached_at: number
+  is_completed?: boolean
+  completed_at?: string | null
+}
+
+// Pending workout completion to sync when back online
+export interface PendingWorkoutCompletion {
+  id: string
+  workout_id: string
+  user_id: string
+  completed_at: string
+  synced: boolean
 }
 
 export interface OfflineProgram {
