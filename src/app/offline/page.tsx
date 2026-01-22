@@ -8,7 +8,6 @@ import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import {
   getAllWorkouts,
-  getStorageEstimate,
   clearAllOfflineData,
   savePendingCompletion,
   getPendingCompletions,
@@ -22,14 +21,6 @@ import { Exercise } from '@/types'
 import { useAuth } from '@/hooks/useAuth'
 import { createClient } from '@/lib/supabase/client'
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
-}
-
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString('en-US', {
     month: 'short',
@@ -42,7 +33,6 @@ export default function OfflinePage() {
   const [isOnline, setIsOnline] = useState(true)
   const [downloadedWorkouts, setDownloadedWorkouts] = useState<OfflineWorkout[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [storageInfo, setStorageInfo] = useState<{ usage: number; quota: number } | null>(null)
   const [isMounted, setIsMounted] = useState(false)
 
   // Workout player state
@@ -117,12 +107,8 @@ export default function OfflinePage() {
 
   const loadOfflineContent = async () => {
     try {
-      const [workouts, storage] = await Promise.all([
-        getAllWorkouts(),
-        getStorageEstimate(),
-      ])
+      const workouts = await getAllWorkouts()
       setDownloadedWorkouts(workouts)
-      setStorageInfo({ usage: storage.usage, quota: storage.quota })
     } catch (error) {
       console.error('Error loading offline content:', error)
     } finally {
@@ -153,9 +139,6 @@ export default function OfflinePage() {
     try {
       await clearAllOfflineData()
       setDownloadedWorkouts([])
-      // Re-fetch actual storage estimate from browser
-      const storage = await getStorageEstimate()
-      setStorageInfo({ usage: storage.usage, quota: storage.quota })
     } catch (error) {
       console.error('Error deleting offline data:', error)
     } finally {
@@ -545,21 +528,14 @@ export default function OfflinePage() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-primary">Downloaded Workouts</h2>
-            <div className="flex items-center gap-3">
-              {storageInfo && storageInfo.usage > 0 && (
-                <span className="text-sm text-text-primary/50">
-                  {formatBytes(storageInfo.usage)} used
-                </span>
-              )}
-              {downloadedWorkouts.length > 0 && (
-                <button
-                  onClick={() => setShowDeleteAllConfirm(true)}
-                  className="text-sm text-red-500 hover:text-red-400 transition-colors"
-                >
-                  Delete All
-                </button>
-              )}
-            </div>
+            {downloadedWorkouts.length > 0 && (
+              <button
+                onClick={() => setShowDeleteAllConfirm(true)}
+                className="text-sm text-red-500 hover:text-red-400 transition-colors"
+              >
+                Delete All
+              </button>
+            )}
           </div>
 
           {isLoading ? (
@@ -714,7 +690,7 @@ export default function OfflinePage() {
         onClose={() => setShowDeleteAllConfirm(false)}
         onConfirm={handleDeleteAll}
         title="Delete All Downloads"
-        message={`Are you sure you want to delete all ${downloadedWorkouts.length} downloaded workout${downloadedWorkouts.length === 1 ? '' : 's'}? This will free up ${formatBytes(storageInfo?.usage || 0)} of storage.`}
+        message={`Are you sure you want to delete all ${downloadedWorkouts.length} downloaded workout${downloadedWorkouts.length === 1 ? '' : 's'}? You'll need to download them again for offline use.`}
         confirmText={isDeleting ? 'Deleting...' : 'Delete All'}
         cancelText="Cancel"
         variant="danger"
