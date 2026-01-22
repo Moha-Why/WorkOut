@@ -505,9 +505,9 @@ export default function CoachExercisesPage() {
                       <div className="w-10 h-10 flex items-center justify-center rounded-full bg-bg-main text-sm font-bold text-text-primary">
                         {config.set_number}
                       </div>
-                      <div className="flex-1 grid grid-cols-3 gap-3">
+                      <div className="flex-1 grid grid-cols-3 gap-1.5 sm:gap-3">
                         <Input
-                          label="Weight (kg)"
+                          label="Weight"
                           type="number"
                           value={config.target_weight}
                           onChange={e => {
@@ -529,7 +529,7 @@ export default function CoachExercisesPage() {
                           placeholder="reps"
                         />
                         <Input
-                          label="Rest (sec)"
+                          label="Rest"
                           type="number"
                           value={config.rest_seconds}
                           onChange={e => {
@@ -537,7 +537,7 @@ export default function CoachExercisesPage() {
                             updated[index].rest_seconds = e.target.value
                             setSetConfigs(updated)
                           }}
-                          placeholder="60"
+                          placeholder="sec"
                         />
                       </div>
                       {setConfigs.length > 1 && (
