@@ -571,14 +571,14 @@ export default function WorkoutEditorPage() {
                             <div className="w-10 h-10 flex items-center justify-center rounded-full bg-bg-main text-sm font-bold text-text-primary shrink-0">
                               {config.set_number}
                             </div>
-                            <div className="flex-1 grid grid-cols-3 gap-2">
+                            <div className="flex-1 grid grid-cols-3 gap-1.5 sm:gap-2">
                               <div>
-                                <label className="text-xs text-gray-400 block mb-1">Weight (kg)</label>
+                                <label className="text-xs text-gray-400 block mb-1">Weight</label>
                                 <input
                                   type="number"
                                   value={config.target_weight}
                                   onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'target_weight', e.target.value)}
-                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  className="w-full px-1.5 sm:px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
                                   placeholder="kg"
                                 />
                               </div>
@@ -588,18 +588,18 @@ export default function WorkoutEditorPage() {
                                   type="number"
                                   value={config.target_reps}
                                   onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'target_reps', e.target.value)}
-                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  className="w-full px-1.5 sm:px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
                                   placeholder="reps"
                                 />
                               </div>
                               <div>
-                                <label className="text-xs text-gray-400 block mb-1">Rest (sec)</label>
+                                <label className="text-xs text-gray-400 block mb-1">Rest</label>
                                 <input
                                   type="number"
                                   value={config.rest_seconds}
                                   onChange={(e) => handleSetConfigChange(exercise.id, setIndex, 'rest_seconds', e.target.value)}
-                                  className="w-full px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
-                                  placeholder="60"
+                                  className="w-full px-1.5 sm:px-2 py-1.5 text-sm border border-border bg-bg-main text-text-primary rounded focus:outline-none focus:ring-1 focus:ring-accent"
+                                  placeholder="sec"
                                 />
                               </div>
                             </div>
