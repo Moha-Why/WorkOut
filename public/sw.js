@@ -1,9 +1,10 @@
 // Service Worker for Workout Platform PWA
-const CACHE_VERSION = 'v2.0.0'
+const CACHE_VERSION = 'v2.1.0'
 const STATIC_CACHE = `static-${CACHE_VERSION}`
 const DYNAMIC_CACHE = `dynamic-${CACHE_VERSION}`
 const VIDEO_CACHE = `videos-${CACHE_VERSION}`
 const IMAGE_CACHE = `images-${CACHE_VERSION}`
+const NEXT_CACHE = `next-${CACHE_VERSION}`
 
 // Assets to cache on install
 const STATIC_ASSETS = [
@@ -37,11 +38,13 @@ self.addEventListener('activate', (event) => {
               cacheName.startsWith('static-') ||
               cacheName.startsWith('dynamic-') ||
               cacheName.startsWith('videos-') ||
-              cacheName.startsWith('images-')
+              cacheName.startsWith('images-') ||
+              cacheName.startsWith('next-')
             ) && cacheName !== STATIC_CACHE &&
               cacheName !== DYNAMIC_CACHE &&
               cacheName !== VIDEO_CACHE &&
-              cacheName !== IMAGE_CACHE
+              cacheName !== IMAGE_CACHE &&
+              cacheName !== NEXT_CACHE
           })
           .map((cacheName) => {
             console.log('[SW] Deleting old cache:', cacheName)
@@ -68,8 +71,30 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Skip Next.js chunks - always fetch from network to avoid stale cache issues
+  // Next.js chunks - Network first, cache fallback for offline support
   if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Cache successful responses
+          if (response && response.status === 200) {
+            const responseClone = response.clone()
+            caches.open(NEXT_CACHE).then((cache) => {
+              cache.put(request, responseClone)
+            })
+          }
+          return response
+        })
+        .catch(() => {
+          // Offline - try to serve from cache
+          return caches.match(request).then((cachedResponse) => {
+            if (cachedResponse) {
+              return cachedResponse
+            }
+            return new Response('Offline', { status: 503 })
+          })
+        })
+    )
     return
   }
 
