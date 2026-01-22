@@ -6,7 +6,8 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
-import { getAllWorkouts, getStorageEstimate } from '@/lib/offline/db'
+import { getAllWorkouts, getStorageEstimate, clearAllOfflineData } from '@/lib/offline/db'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { OfflineWorkout } from '@/types/offline'
 import { Exercise } from '@/types'
 
@@ -35,6 +36,8 @@ export default function OfflinePage() {
   // Workout player state
   const [selectedWorkout, setSelectedWorkout] = useState<OfflineWorkout | null>(null)
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0)
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     setIsMounted(true)
@@ -85,6 +88,20 @@ export default function OfflinePage() {
   const handleBackToList = () => {
     setSelectedWorkout(null)
     setCurrentExerciseIndex(0)
+  }
+
+  const handleDeleteAll = async () => {
+    setIsDeleting(true)
+    try {
+      await clearAllOfflineData()
+      setDownloadedWorkouts([])
+      setStorageInfo({ usage: 0, quota: storageInfo?.quota || 0 })
+    } catch (error) {
+      console.error('Error deleting offline data:', error)
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteAllConfirm(false)
+    }
   }
 
   const currentExercise: Exercise | null = selectedWorkout?.exercises?.[currentExerciseIndex] || null
@@ -339,11 +356,21 @@ export default function OfflinePage() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-text-primary">Downloaded Workouts</h2>
-            {storageInfo && storageInfo.usage > 0 && (
-              <span className="text-sm text-text-primary/50">
-                {formatBytes(storageInfo.usage)} used
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {storageInfo && storageInfo.usage > 0 && (
+                <span className="text-sm text-text-primary/50">
+                  {formatBytes(storageInfo.usage)} used
+                </span>
+              )}
+              {downloadedWorkouts.length > 0 && (
+                <button
+                  onClick={() => setShowDeleteAllConfirm(true)}
+                  className="text-sm text-red-500 hover:text-red-400 transition-colors"
+                >
+                  Delete All
+                </button>
+              )}
+            </div>
           </div>
 
           {isLoading ? (
@@ -465,6 +492,18 @@ export default function OfflinePage() {
           </div>
         )}
       </div>
+
+      {/* Delete All Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={showDeleteAllConfirm}
+        onClose={() => setShowDeleteAllConfirm(false)}
+        onConfirm={handleDeleteAll}
+        title="Delete All Downloads"
+        message={`Are you sure you want to delete all ${downloadedWorkouts.length} downloaded workout${downloadedWorkouts.length === 1 ? '' : 's'}? This will free up ${formatBytes(storageInfo?.usage || 0)} of storage.`}
+        confirmText={isDeleting ? 'Deleting...' : 'Delete All'}
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   )
 }

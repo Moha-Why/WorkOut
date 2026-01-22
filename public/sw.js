@@ -1,5 +1,5 @@
 // Service Worker for Workout Platform PWA
-const CACHE_VERSION = 'v2.1.0'
+const CACHE_VERSION = 'v2.2.0'
 const STATIC_CACHE = `static-${CACHE_VERSION}`
 const DYNAMIC_CACHE = `dynamic-${CACHE_VERSION}`
 const VIDEO_CACHE = `videos-${CACHE_VERSION}`
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
   '/',
   '/login',
   '/offline',
+  '/offline.html',
   '/manifest.json',
 ]
 
@@ -85,14 +86,22 @@ self.addEventListener('fetch', (event) => {
           }
           return response
         })
-        .catch(() => {
+        .catch(async () => {
           // Offline - try to serve from cache
-          return caches.match(request).then((cachedResponse) => {
-            if (cachedResponse) {
-              return cachedResponse
-            }
-            return new Response('Offline', { status: 503 })
-          })
+          const cachedResponse = await caches.match(request)
+          if (cachedResponse) {
+            return cachedResponse
+          }
+          // If it's a JS chunk we don't have, redirect to offline page
+          if (request.destination === 'script') {
+            console.log('[SW] Missing chunk, will show offline page:', url.pathname)
+            // Return empty script to prevent JS errors, let the page handle offline state
+            return new Response('', {
+              status: 200,
+              headers: { 'Content-Type': 'application/javascript' }
+            })
+          }
+          return new Response('Offline', { status: 503 })
         })
     )
     return
@@ -181,10 +190,20 @@ self.addEventListener('fetch', (event) => {
         })
 
         return response
-      }).catch(() => {
+      }).catch(async () => {
         // Offline fallback
         if (request.destination === 'document') {
-          return caches.match('/offline') || new Response('Offline', { status: 503 })
+          // Try the Next.js offline page first, then fall back to static HTML
+          const offlinePage = await caches.match('/offline')
+          if (offlinePage) {
+            return offlinePage
+          }
+          // Fall back to static HTML offline page
+          const staticOffline = await caches.match('/offline.html')
+          if (staticOffline) {
+            return staticOffline
+          }
+          return new Response('Offline', { status: 503 })
         }
         return new Response('Offline', { status: 503 })
       })
