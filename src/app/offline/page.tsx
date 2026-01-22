@@ -153,7 +153,9 @@ export default function OfflinePage() {
     try {
       await clearAllOfflineData()
       setDownloadedWorkouts([])
-      setStorageInfo({ usage: 0, quota: storageInfo?.quota || 0 })
+      // Re-fetch actual storage estimate from browser
+      const storage = await getStorageEstimate()
+      setStorageInfo({ usage: storage.usage, quota: storage.quota })
     } catch (error) {
       console.error('Error deleting offline data:', error)
     } finally {
