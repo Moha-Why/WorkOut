@@ -576,7 +576,15 @@ export default function OfflinePage() {
             </div>
           ) : downloadedWorkouts.length > 0 ? (
             <div className="space-y-3">
-              {downloadedWorkouts.map((offlineWorkout) => {
+              {[...downloadedWorkouts]
+                .sort((a, b) => {
+                  // Sort by week first, then by day
+                  if (a.data.week_number !== b.data.week_number) {
+                    return a.data.week_number - b.data.week_number
+                  }
+                  return a.data.day_number - b.data.day_number
+                })
+                .map((offlineWorkout) => {
                 const workout = offlineWorkout.data
                 const exerciseCount = offlineWorkout.exercises?.length || 0
 
