@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.vercel.work_out_ashy.twa",
+    "sha256_cert_fingerprints": [
+      "63:D8:C0:88:11:F1:3F:77:CD:60:A8:A0:47:C6:EE:3A:22:BF:C2:00:B8:03:3A:E3:1A:32:34:5C:97:88:CF:8E"
+    ]
+  }
+}]
