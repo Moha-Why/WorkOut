@@ -13,7 +13,9 @@ export function registerServiceWorker() {
     return
   }
 
-  window.addEventListener('load', async () => {
+  // Register immediately instead of waiting for window.load
+  // This ensures SW is available for offline support sooner
+  const registerSW = async () => {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/',
@@ -72,7 +74,15 @@ export function registerServiceWorker() {
     } catch (error) {
       console.error('Service Worker registration failed:', error)
     }
-  })
+  }
+
+  // If document is already loaded, register immediately
+  // Otherwise wait for DOMContentLoaded (not load, which is too late)
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    registerSW()
+  } else {
+    document.addEventListener('DOMContentLoaded', registerSW)
+  }
 }
 
 // Check if app is installed as PWA

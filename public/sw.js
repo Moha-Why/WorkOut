@@ -1,5 +1,5 @@
 // Service Worker for Workout Platform PWA
-const CACHE_VERSION = 'v2.2.0'
+const CACHE_VERSION = 'v2.3.0'
 const STATIC_CACHE = `static-${CACHE_VERSION}`
 const DYNAMIC_CACHE = `dynamic-${CACHE_VERSION}`
 const VIDEO_CACHE = `videos-${CACHE_VERSION}`
@@ -69,6 +69,40 @@ self.addEventListener('fetch', (event) => {
 
   // Skip chrome extensions
   if (url.protocol === 'chrome-extension:') {
+    return
+  }
+
+  // Handle navigation requests (page loads) specially for better offline support
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // Cache successful navigation responses
+          if (response && response.status === 200) {
+            const responseClone = response.clone()
+            caches.open(DYNAMIC_CACHE).then((cache) => {
+              cache.put(request, responseClone)
+            })
+          }
+          return response
+        })
+        .catch(async () => {
+          // Offline - try cached page first
+          const cachedResponse = await caches.match(request)
+          if (cachedResponse) {
+            return cachedResponse
+          }
+          // Fallback to static offline page
+          const offlineHtml = await caches.match('/offline.html')
+          if (offlineHtml) {
+            return offlineHtml
+          }
+          return new Response('Offline', {
+            status: 503,
+            headers: { 'Content-Type': 'text/html' }
+          })
+        })
+    )
     return
   }
 

@@ -3,7 +3,7 @@
   "short_name": "Workout",
   "description": "Your personal workout and fitness training platform",
   "start_url": "/",
-  "display": "standalone",
+  "display": "fullscreen",
   "background_color": "#ffffff",
   "theme_color": "#000000",
   "orientation": "portrait",
