@@ -119,3 +119,46 @@ export async function getPendingLogCount(): Promise<number> {
   const pending = await getPendingSetLogs()
   return pending.length
 }
+
+// Get the most recent logs for an exercise (from previous sessions, excluding current workout)
+export async function getPreviousLogsForExercise(
+  exerciseId: string,
+  excludeWorkoutId?: string
+): Promise<Map<number, SetLog>> {
+  if (!isBrowser) return new Map()
+
+  const db = await getDB()
+  const allLogs = await db.getAllFromIndex('set_logs', 'by-exercise', exerciseId)
+
+  // Filter out current workout and sort by completed_at descending
+  const filteredLogs = allLogs
+    .filter((log) => log.workout_id !== excludeWorkoutId)
+    .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
+
+  // Get the most recent log for each set_number
+  const previousLogs = new Map<number, SetLog>()
+  for (const log of filteredLogs) {
+    if (!previousLogs.has(log.set_number)) {
+      previousLogs.set(log.set_number, log)
+    }
+  }
+
+  return previousLogs
+}
+
+// Get previous logs for multiple exercises at once
+export async function getPreviousLogsForExercises(
+  exerciseIds: string[],
+  excludeWorkoutId?: string
+): Promise<Map<string, Map<number, SetLog>>> {
+  if (!isBrowser) return new Map()
+
+  const result = new Map<string, Map<number, SetLog>>()
+
+  for (const exerciseId of exerciseIds) {
+    const logs = await getPreviousLogsForExercise(exerciseId, excludeWorkoutId)
+    result.set(exerciseId, logs)
+  }
+
+  return result
+}

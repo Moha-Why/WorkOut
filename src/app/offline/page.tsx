@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
+import { SetLogger } from '@/components/workouts/SetLogger'
 import {
   getAllWorkouts,
   clearAllOfflineData,
@@ -14,11 +15,23 @@ import {
   markCompletionSynced,
   updateWorkoutCompletion,
 } from '@/lib/offline/db'
+import {
+  saveSetLog,
+  getSetLogsForWorkout,
+  getPendingSetLogs,
+  markSetLogSynced,
+  getPreviousLogsForExercises,
+  getPendingLogCount,
+} from '@/lib/offline/setLogs'
+import { retryWithBackoff } from '@/lib/offline/retry'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Toast } from '@/components/ui/Toast'
-import { OfflineWorkout, PendingWorkoutCompletion } from '@/types/offline'
-import { Exercise } from '@/types'
+import { ReminderSettings } from '@/components/ui/ReminderSettings'
+import { startReminderChecker, getReminderSettings } from '@/lib/offline/reminders'
+import { OfflineWorkout } from '@/types/offline'
+import { Exercise, SetLog } from '@/types'
 import { useAuth } from '@/hooks/useAuth'
+import { useSwipe } from '@/hooks/useSwipe'
 import { createClient } from '@/lib/supabase/client'
 
 function formatDate(timestamp: number): string {
@@ -47,35 +60,170 @@ export default function OfflinePage() {
     isOpen: false,
   })
 
-  // Sync pending completions when online
-  const syncPendingCompletions = useCallback(async () => {
-    if (!navigator.onLine) return
+  // Set logging state
+  const [completedSets, setCompletedSets] = useState<Map<string, Set<number>>>(new Map())
+  const [setLogs, setSetLogs] = useState<Map<string, SetLog[]>>(new Map())
+  const [previousLogs, setPreviousLogs] = useState<Map<string, Map<number, SetLog>>>(new Map())
+  const [isResting, setIsResting] = useState(false)
+  const [restTimeLeft, setRestTimeLeft] = useState(0)
+  const [currentSetNumber, setCurrentSetNumber] = useState(1)
+
+  // Sync status state
+  const [pendingSyncCount, setPendingSyncCount] = useState(0)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  // Notification permission state
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'default'>('default')
+
+  // Reminder settings modal state
+  const [showReminderSettings, setShowReminderSettings] = useState(false)
+  const [reminderEnabled, setReminderEnabled] = useState(false)
+
+  // Refresh pending sync count
+  const refreshPendingCount = useCallback(async () => {
+    try {
+      const [pendingCompletions, pendingLogs] = await Promise.all([
+        getPendingCompletions(),
+        getPendingLogCount(),
+      ])
+      setPendingSyncCount(pendingCompletions.length + pendingLogs)
+    } catch (error) {
+      console.error('Error getting pending count:', error)
+    }
+  }, [])
+
+  // Sync all pending data with exponential backoff retry
+  const syncAllPendingData = useCallback(async () => {
+    if (!navigator.onLine || isSyncing) return
+
+    setIsSyncing(true)
+    let syncedCount = 0
+    let failedCount = 0
 
     try {
-      const pending = await getPendingCompletions()
-      if (pending.length === 0) return
-
       const supabase = createClient()
 
-      for (const completion of pending) {
-        const { error } = await supabase.from('user_workout_progress').insert({
-          user_id: completion.user_id,
-          workout_id: completion.workout_id,
-          completed_at: completion.completed_at,
-        } as any)
-
-        if (!error) {
+      // Sync pending completions with retry
+      const pendingCompletions = await getPendingCompletions()
+      for (const completion of pendingCompletions) {
+        try {
+          await retryWithBackoff(
+            async () => {
+              const { error } = await supabase.from('user_workout_progress').insert({
+                user_id: completion.user_id,
+                workout_id: completion.workout_id,
+                completed_at: completion.completed_at,
+              } as any)
+              if (error) throw error
+            },
+            { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 10000 }
+          )
           await markCompletionSynced(completion.id)
+          syncedCount++
+        } catch (error) {
+          console.error('Failed to sync completion after retries:', completion.id, error)
+          failedCount++
         }
       }
 
+      // Sync pending set logs with retry
+      const pendingLogs = await getPendingSetLogs()
+      for (const log of pendingLogs) {
+        try {
+          await retryWithBackoff(
+            async () => {
+              const { error } = await supabase.from('set_logs').insert({
+                id: log.id,
+                user_id: log.user_id,
+                workout_id: log.workout_id,
+                exercise_id: log.exercise_id,
+                set_number: log.set_number,
+                weight: log.weight,
+                reps: log.reps,
+                rpe: log.rpe,
+                completed_at: log.completed_at,
+                notes: log.notes,
+              } as any)
+              if (error) throw error
+            },
+            { maxRetries: 3, baseDelayMs: 1000, maxDelayMs: 10000 }
+          )
+          await markSetLogSynced(log.id)
+          syncedCount++
+        } catch (error) {
+          console.error('Failed to sync set log after retries:', log.id, error)
+          failedCount++
+        }
+      }
+
+      if (syncedCount > 0 && failedCount === 0) {
+        setToast({
+          message: `Synced ${syncedCount} item${syncedCount === 1 ? '' : 's'}!`,
+          type: 'success',
+          isOpen: true,
+        })
+      } else if (syncedCount > 0 && failedCount > 0) {
+        setToast({
+          message: `Synced ${syncedCount}, ${failedCount} failed. Will retry.`,
+          type: 'info',
+          isOpen: true,
+        })
+      } else if (failedCount > 0) {
+        setToast({
+          message: `Sync failed for ${failedCount} item${failedCount === 1 ? '' : 's'}. Will retry.`,
+          type: 'error',
+          isOpen: true,
+        })
+      }
+    } catch (error) {
+      console.error('Error syncing pending data:', error)
       setToast({
-        message: 'Offline completions synced!',
-        type: 'success',
+        message: 'Sync failed. Will retry later.',
+        type: 'error',
         isOpen: true,
       })
-    } catch (error) {
-      console.error('Error syncing pending completions:', error)
+    } finally {
+      setIsSyncing(false)
+      await refreshPendingCount()
+    }
+  }, [isSyncing, refreshPendingCount])
+
+  // Request notification permission
+  const requestNotificationPermission = useCallback(async () => {
+    if (!('Notification' in window)) return
+
+    if (Notification.permission === 'granted') {
+      setNotificationPermission('granted')
+      return
+    }
+
+    if (Notification.permission !== 'denied') {
+      const permission = await Notification.requestPermission()
+      setNotificationPermission(permission)
+    }
+  }, [])
+
+  // Show notification when rest timer completes
+  const showRestCompleteNotification = useCallback(() => {
+    if (!('Notification' in window)) return
+    if (Notification.permission !== 'granted') return
+
+    // Only show notification if page is hidden (app in background)
+    if (document.visibilityState === 'hidden') {
+      const notification = new Notification('Rest Complete! 💪', {
+        body: 'Time for your next set!',
+        icon: '/icons/icon-192x192.png',
+        tag: 'rest-timer',
+        requireInteraction: true,
+      })
+
+      notification.onclick = () => {
+        window.focus()
+        notification.close()
+      }
+
+      // Auto-close after 10 seconds
+      setTimeout(() => notification.close(), 10000)
     }
   }, [])
 
@@ -83,9 +231,25 @@ export default function OfflinePage() {
     setIsMounted(true)
     setIsOnline(navigator.onLine)
 
+    // Check notification permission on mount
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission)
+    }
+
+    // Load reminder settings
+    const settings = getReminderSettings()
+    setReminderEnabled(settings.enabled)
+
+    // Start reminder checker
+    const stopReminderChecker = startReminderChecker(() => {
+      // Refresh reminder state when a reminder is shown
+      const updatedSettings = getReminderSettings()
+      setReminderEnabled(updatedSettings.enabled)
+    })
+
     const handleOnline = () => {
       setIsOnline(true)
-      syncPendingCompletions()
+      syncAllPendingData()
     }
     const handleOffline = () => setIsOnline(false)
 
@@ -93,17 +257,19 @@ export default function OfflinePage() {
     window.addEventListener('offline', handleOffline)
 
     loadOfflineContent()
+    refreshPendingCount()
 
     // Try to sync on mount if online
     if (navigator.onLine) {
-      syncPendingCompletions()
+      syncAllPendingData()
     }
 
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      stopReminderChecker()
     }
-  }, [syncPendingCompletions])
+  }, [syncAllPendingData, refreshPendingCount])
 
   const loadOfflineContent = async () => {
     try {
@@ -124,15 +290,180 @@ export default function OfflinePage() {
     }
   }
 
-  const handleWorkoutSelect = (workout: OfflineWorkout) => {
+  const handleWorkoutSelect = async (workout: OfflineWorkout) => {
     setSelectedWorkout(workout)
     setCurrentExerciseIndex(0)
+    setCurrentSetNumber(1)
+    setIsResting(false)
+    setRestTimeLeft(0)
+
+    // Request notification permission when starting a workout
+    requestNotificationPermission()
+
+    // Load existing set logs for this workout
+    try {
+      const existingLogs = await getSetLogsForWorkout(workout.id)
+      const logsMap = new Map<string, SetLog[]>()
+      const completedMap = new Map<string, Set<number>>()
+
+      for (const log of existingLogs) {
+        // Group logs by exercise
+        const exerciseLogs = logsMap.get(log.exercise_id) || []
+        exerciseLogs.push(log)
+        logsMap.set(log.exercise_id, exerciseLogs)
+
+        // Track completed sets per exercise
+        const exerciseCompleted = completedMap.get(log.exercise_id) || new Set<number>()
+        exerciseCompleted.add(log.set_number)
+        completedMap.set(log.exercise_id, exerciseCompleted)
+      }
+
+      setSetLogs(logsMap)
+      setCompletedSets(completedMap)
+
+      // Load previous session logs for each exercise (for pre-filling weight)
+      const exerciseIds = workout.exercises?.map((e) => e.id) || []
+      if (exerciseIds.length > 0) {
+        const prevLogs = await getPreviousLogsForExercises(exerciseIds, workout.id)
+        setPreviousLogs(prevLogs)
+      }
+    } catch (error) {
+      console.error('Error loading set logs:', error)
+      setSetLogs(new Map())
+      setCompletedSets(new Map())
+      setPreviousLogs(new Map())
+    }
   }
 
   const handleBackToList = () => {
     setSelectedWorkout(null)
     setCurrentExerciseIndex(0)
+    setCompletedSets(new Map())
+    setSetLogs(new Map())
+    setPreviousLogs(new Map())
+    setCurrentSetNumber(1)
+    setIsResting(false)
+    setRestTimeLeft(0)
   }
+
+  // Handle set completion
+  const handleSetComplete = async (exerciseId: string, setNumber: number, weight: number | null, reps: number) => {
+    if (!selectedWorkout || !profile) return
+
+    const log: SetLog = {
+      id: crypto.randomUUID(),
+      user_id: profile.id,
+      workout_id: selectedWorkout.id,
+      exercise_id: exerciseId,
+      set_number: setNumber,
+      weight,
+      reps,
+      rpe: null,
+      completed_at: new Date().toISOString(),
+      notes: null,
+    }
+
+    // Save to IndexedDB (will sync when online)
+    const isOnlineNow = navigator.onLine
+    await saveSetLog(log, isOnlineNow)
+
+    // If online, try to sync immediately
+    if (isOnlineNow) {
+      try {
+        const supabase = createClient()
+        const { error } = await supabase.from('set_logs').insert({
+          id: log.id,
+          user_id: log.user_id,
+          workout_id: log.workout_id,
+          exercise_id: log.exercise_id,
+          set_number: log.set_number,
+          weight: log.weight,
+          reps: log.reps,
+          rpe: log.rpe,
+          completed_at: log.completed_at,
+          notes: log.notes,
+        } as any)
+
+        if (!error) {
+          await markSetLogSynced(log.id)
+        }
+      } catch (error) {
+        console.error('Error syncing set log:', error)
+      }
+    }
+
+    // Update local state
+    setSetLogs((prev) => {
+      const updated = new Map(prev)
+      const exerciseLogs = updated.get(exerciseId) || []
+      updated.set(exerciseId, [...exerciseLogs, log])
+      return updated
+    })
+
+    setCompletedSets((prev) => {
+      const updated = new Map(prev)
+      const exerciseCompleted = updated.get(exerciseId) || new Set<number>()
+      exerciseCompleted.add(setNumber)
+      updated.set(exerciseId, new Set(exerciseCompleted))
+      return updated
+    })
+
+    // Find current exercise and get total sets
+    const currentExercise = selectedWorkout.exercises?.[currentExerciseIndex]
+    const totalSets = currentExercise?.sets || 3
+
+    // Start rest timer if not the last set
+    if (setNumber < totalSets) {
+      setIsResting(true)
+      setRestTimeLeft(currentExercise?.rest_seconds || 60)
+      setCurrentSetNumber(setNumber + 1)
+    } else {
+      // Move to next exercise if all sets done
+      setCurrentSetNumber(1)
+    }
+
+    // Refresh pending count if offline
+    if (!isOnlineNow) {
+      await refreshPendingCount()
+    }
+  }
+
+  // Rest timer countdown
+  useEffect(() => {
+    if (!isResting) return
+
+    if (restTimeLeft <= 0) {
+      setIsResting(false)
+      showRestCompleteNotification()
+      return
+    }
+
+    const timer = setInterval(() => {
+      setRestTimeLeft((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [isResting, restTimeLeft, showRestCompleteNotification])
+
+  // Update currentSetNumber when exercise changes
+  useEffect(() => {
+    if (!selectedWorkout) return
+    const currentExercise = selectedWorkout.exercises?.[currentExerciseIndex]
+    if (!currentExercise) return
+
+    const exerciseCompletedSets = completedSets.get(currentExercise.id)
+    const totalSets = currentExercise.sets || 3
+
+    // Find first uncompleted set
+    for (let i = 1; i <= totalSets; i++) {
+      if (!exerciseCompletedSets?.has(i)) {
+        setCurrentSetNumber(i)
+        return
+      }
+    }
+    // All sets completed
+    setCurrentSetNumber(totalSets)
+  }, [currentExerciseIndex, selectedWorkout, completedSets])
 
   const handleDeleteAll = async () => {
     setIsDeleting(true)
@@ -241,6 +572,13 @@ export default function OfflinePage() {
     }
   }
 
+  // Swipe handlers for exercise navigation
+  const swipeHandlers = useSwipe({
+    onSwipeLeft: handleNextExercise,
+    onSwipeRight: handlePreviousExercise,
+    threshold: 50,
+  })
+
   // Show loading state until mounted (prevents SSR hydration issues)
   if (!isMounted) {
     return (
@@ -292,11 +630,20 @@ export default function OfflinePage() {
           </div>
         </div>
 
-        <div className="max-w-2xl mx-auto p-4 space-y-4">
+        <div
+          className="max-w-2xl mx-auto p-4 space-y-4"
+          onTouchStart={swipeHandlers.onTouchStart}
+          onTouchMove={swipeHandlers.onTouchMove}
+          onTouchEnd={swipeHandlers.onTouchEnd}
+        >
           {/* Progress indicator */}
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-primary/60">
               Exercise {currentExerciseIndex + 1} of {totalExercises}
+            </span>
+            {/* Swipe hint */}
+            <span className="text-text-primary/40 text-xs">
+              ← Swipe to navigate →
             </span>
           </div>
 
@@ -332,33 +679,170 @@ export default function OfflinePage() {
                     )}
                   </div>
 
-                  {/* Sets, Reps, Rest */}
-                  <div className="flex gap-6">
-                    {currentExercise.sets && (
-                      <div>
-                        <p className="text-xs text-text-primary/50">Sets</p>
-                        <p className="text-2xl font-bold text-text-primary">
-                          {currentExercise.sets}
-                        </p>
+                  {/* Set Logging Section */}
+                  {(() => {
+                    const totalSets = currentExercise.sets || 3
+                    const exerciseCompletedSets = completedSets.get(currentExercise.id) || new Set<number>()
+                    const completedCount = exerciseCompletedSets.size
+                    const isAllCompleted = completedCount === totalSets
+                    const exerciseLogs = setLogs.get(currentExercise.id) || []
+
+                    // Get previous session's log for this exercise/set (for pre-filling weight)
+                    const exercisePrevLogs = previousLogs.get(currentExercise.id)
+                    const prevSessionLog = exercisePrevLogs?.get(currentSetNumber)
+
+                    // Format time as MM:SS
+                    const formatTime = (seconds: number) => {
+                      const mins = Math.floor(seconds / 60)
+                      const secs = seconds % 60
+                      return `${mins}:${secs.toString().padStart(2, '0')}`
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Previous session hint */}
+                        {prevSessionLog && !exerciseCompletedSets.has(currentSetNumber) && (
+                          <div className="flex items-center gap-2 text-xs text-text-primary/50 bg-bg-hover/50 px-3 py-2 rounded-lg">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Last session: {prevSessionLog.weight}kg × {prevSessionLog.reps} reps</span>
+                          </div>
+                        )}
+
+                        {/* Set progress indicator */}
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-text-primary/60">
+                            {isAllCompleted ? 'All sets complete!' : `Set ${currentSetNumber} of ${totalSets}`}
+                          </p>
+                          <div className="flex gap-1">
+                            {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => (
+                              <div
+                                key={setNum}
+                                className={`w-3 h-3 rounded-full transition-colors ${
+                                  exerciseCompletedSets.has(setNum)
+                                    ? 'bg-green-500'
+                                    : setNum === currentSetNumber
+                                    ? 'bg-accent'
+                                    : 'bg-gray-600'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Rest Timer */}
+                        {isResting && (
+                          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6 text-center">
+                            <p className="text-sm text-orange-400 mb-2">Rest Time</p>
+                            <p className="text-5xl font-bold text-orange-500 mb-4">
+                              {formatTime(restTimeLeft)}
+                            </p>
+                            <Button
+                              onClick={() => setIsResting(false)}
+                              variant="outline"
+                              className="border-orange-500 text-orange-500 hover:bg-orange-500/10"
+                            >
+                              Skip Rest
+                            </Button>
+                            {/* Notification status */}
+                            <div className="mt-4 flex items-center justify-center gap-2 text-xs">
+                              {notificationPermission === 'granted' ? (
+                                <>
+                                  <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                  </svg>
+                                  <span className="text-green-500/70">Notifications enabled</span>
+                                </>
+                              ) : notificationPermission === 'denied' ? (
+                                <>
+                                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                  </svg>
+                                  <span className="text-red-500/70">Notifications blocked</span>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={requestNotificationPermission}
+                                  className="flex items-center gap-2 text-orange-400/70 hover:text-orange-400"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                  </svg>
+                                  <span>Enable notifications</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Set Logger - only show when profile exists and not resting */}
+                        {!isResting && !isAllCompleted && profile && (
+                          <SetLogger
+                            setNumber={currentSetNumber}
+                            targetReps={currentExercise.reps ? Number(currentExercise.reps) : null}
+                            previousWeight={prevSessionLog?.weight}
+                            previousReps={prevSessionLog?.reps}
+                            isCompleted={exerciseCompletedSets.has(currentSetNumber)}
+                            onComplete={(weight, reps) => handleSetComplete(currentExercise.id, currentSetNumber, weight, reps)}
+                          />
+                        )}
+
+                        {/* All sets completed message */}
+                        {isAllCompleted && (
+                          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
+                            <svg className="w-10 h-10 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-green-500 font-semibold">Exercise Complete!</p>
+                            <p className="text-sm text-green-500/70 mt-1">All {totalSets} sets logged</p>
+                          </div>
+                        )}
+
+                        {/* Preview mode message when no profile */}
+                        {!profile && !isAllCompleted && (
+                          <div className="bg-accent/10 border border-accent/30 rounded-xl p-4">
+                            <div className="flex items-start gap-3">
+                              <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <div>
+                                <p className="text-sm text-accent font-medium">Preview Mode</p>
+                                <p className="text-xs text-accent/70 mt-0.5">
+                                  Sign in to log your sets and track progress.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Completed sets summary */}
+                        {completedCount > 0 && (
+                          <div className="border-t border-border pt-4">
+                            <p className="text-xs text-text-primary/50 mb-2">Completed Sets:</p>
+                            <div className="space-y-1">
+                              {Array.from({ length: totalSets }, (_, i) => i + 1)
+                                .filter((setNum) => exerciseCompletedSets.has(setNum))
+                                .map((setNum) => {
+                                  const log = exerciseLogs.find(l => l.set_number === setNum)
+                                  return (
+                                    <div
+                                      key={setNum}
+                                      className="flex items-center justify-between text-sm text-text-primary/70 bg-bg-hover/50 px-3 py-2 rounded"
+                                    >
+                                      <span>Set {setNum}</span>
+                                      <span className="text-green-500">
+                                        {log ? `${log.weight}kg × ${log.reps}` : '✓'}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {currentExercise.reps && (
-                      <div>
-                        <p className="text-xs text-text-primary/50">Reps</p>
-                        <p className="text-2xl font-bold text-text-primary">
-                          {currentExercise.reps}
-                        </p>
-                      </div>
-                    )}
-                    {currentExercise.rest_seconds && (
-                      <div>
-                        <p className="text-xs text-text-primary/50">Rest</p>
-                        <p className="text-2xl font-bold text-text-primary">
-                          {currentExercise.rest_seconds}s
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                    )
+                  })()}
 
                   {/* Muscle visualization */}
                   {(currentExercise.target_muscles || currentExercise.assisting_muscles) && (
@@ -486,11 +970,56 @@ export default function OfflinePage() {
       {/* Header */}
       <div className="bg-bg-secondary border-b border-border px-4 py-6">
         <div className="max-w-2xl mx-auto">
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-success' : 'bg-accent'}`} />
-            <span className="text-sm font-medium text-text-primary/70">
-              {isOnline ? 'Online' : 'Offline Mode'}
-            </span>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-3">
+              <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-success' : 'bg-accent'}`} />
+              <span className="text-sm font-medium text-text-primary/70">
+                {isOnline ? 'Online' : 'Offline Mode'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Reminder button */}
+              <button
+                onClick={() => setShowReminderSettings(true)}
+                className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-colors ${
+                  reminderEnabled
+                    ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                    : 'bg-bg-hover text-text-primary/60 hover:bg-bg-hover/80'
+                }`}
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <span>{reminderEnabled ? 'On' : 'Off'}</span>
+              </button>
+
+              {/* Sync status indicator */}
+              {pendingSyncCount > 0 && (
+                <button
+                  onClick={isOnline ? syncAllPendingData : undefined}
+                  disabled={!isOnline || isSyncing}
+                  className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-full transition-colors ${
+                    isOnline
+                      ? 'bg-accent/20 text-accent hover:bg-accent/30 cursor-pointer'
+                      : 'bg-orange-500/20 text-orange-400'
+                  }`}
+                >
+                  {isSyncing ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>{pendingSyncCount} pending</span>
+                  </>
+                )}
+              </button>
+            )}
+            </div>
           </div>
           <h1 className="text-2xl font-bold text-text-primary">
             {isOnline ? 'Connection Restored' : 'Offline Workouts'}
@@ -694,6 +1223,19 @@ export default function OfflinePage() {
         confirmText={isDeleting ? 'Deleting...' : 'Delete All'}
         cancelText="Cancel"
         variant="danger"
+      />
+
+      {/* Reminder Settings Modal */}
+      <ReminderSettings
+        isOpen={showReminderSettings}
+        onClose={() => {
+          setShowReminderSettings(false)
+          // Refresh reminder state after closing
+          const settings = getReminderSettings()
+          setReminderEnabled(settings.enabled)
+        }}
+        onRequestPermission={requestNotificationPermission}
+        notificationPermission={notificationPermission}
       />
 
       {/* Toast */}
