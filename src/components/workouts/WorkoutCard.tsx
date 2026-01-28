@@ -16,6 +16,7 @@ interface WorkoutCardProps {
   completedAt?: string
   onClick?: () => void
   showDownload?: boolean
+  showExercises?: boolean
   className?: string
 }
 
@@ -28,6 +29,7 @@ export function WorkoutCard({
   completedAt,
   onClick,
   showDownload = false,
+  showExercises = false,
   className = '',
 }: WorkoutCardProps) {
   const hasProgress = 'is_completed' in workout
@@ -135,6 +137,27 @@ export function WorkoutCard({
               />
             </svg>
             <span>Completed {formatSmartDate(completedAt)}</span>
+          </div>
+        )}
+
+        {/* Exercise list with sets */}
+        {showExercises && exercises.length > 0 && (
+          <div className="space-y-2 mt-4 pt-4 border-t border-border">
+            {exercises
+              .sort((a, b) => a.order_index - b.order_index)
+              .map((exercise, index) => (
+                <div
+                  key={exercise.id}
+                  className="flex items-center justify-between text-sm py-1"
+                >
+                  <span className="text-text-primary">
+                    {index + 1}. {exercise.name}
+                  </span>
+                  <span className="text-gray-400">
+                    {exercise.sets || 0} × {exercise.reps || '-'}
+                  </span>
+                </div>
+              ))}
           </div>
         )}
 

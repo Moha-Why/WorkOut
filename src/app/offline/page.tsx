@@ -731,51 +731,6 @@ export default function OfflinePage() {
                           </div>
                         </div>
 
-                        {/* Rest Timer */}
-                        {isResting && (
-                          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6 text-center">
-                            <p className="text-sm text-orange-400 mb-2">Rest Time</p>
-                            <p className="text-5xl font-bold text-orange-500 mb-4">
-                              {formatTime(restTimeLeft)}
-                            </p>
-                            <Button
-                              onClick={() => setIsResting(false)}
-                              variant="outline"
-                              className="border-orange-500 text-orange-500 hover:bg-orange-500/10"
-                            >
-                              Skip Rest
-                            </Button>
-                            {/* Notification status */}
-                            <div className="mt-4 flex items-center justify-center gap-2 text-xs">
-                              {notificationPermission === 'granted' ? (
-                                <>
-                                  <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                  </svg>
-                                  <span className="text-green-500/70">Notifications enabled</span>
-                                </>
-                              ) : notificationPermission === 'denied' ? (
-                                <>
-                                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
-                                  </svg>
-                                  <span className="text-red-500/70">Notifications blocked</span>
-                                </>
-                              ) : (
-                                <button
-                                  onClick={requestNotificationPermission}
-                                  className="flex items-center gap-2 text-orange-400/70 hover:text-orange-400"
-                                >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                                  </svg>
-                                  <span>Enable notifications</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
                         {/* Set Logger - only show when profile exists and not resting */}
                         {!isResting && !isAllCompleted && profile && (
                           <SetLogger
@@ -960,6 +915,33 @@ export default function OfflinePage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Fixed Bottom Rest Timer */}
+        {isResting && (
+          <div className="fixed bottom-0 left-0 right-0 bg-orange-500 text-white p-4 shadow-lg z-50">
+            <div className="max-w-2xl mx-auto flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="text-3xl font-bold tabular-nums">
+                  {(() => {
+                    const mins = Math.floor(restTimeLeft / 60)
+                    const secs = restTimeLeft % 60
+                    return `${mins}:${secs.toString().padStart(2, '0')}`
+                  })()}
+                </div>
+                <div className="text-sm opacity-90">
+                  <p className="font-medium">Rest Time</p>
+                  <p className="text-xs opacity-75">Next: Set {currentSetNumber}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsResting(false)}
+                className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg font-medium transition-colors"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

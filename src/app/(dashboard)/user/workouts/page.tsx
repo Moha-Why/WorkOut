@@ -393,6 +393,7 @@ export default function UserWorkoutsPage() {
                         exerciseCount={workout.exercises.length}
                         isCompleted={workout.is_completed || false}
                         showDownload={true}
+                        showExercises={true}
                       />
                     </Link>
                   ))}
