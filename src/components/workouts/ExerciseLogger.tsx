@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Exercise, SetLog, ExerciseSet } from '@/types'
 import { SetLogger } from './SetLogger'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
@@ -61,25 +61,9 @@ export function ExerciseLogger({
   const defaultReps = exerciseSets[0]?.target_reps || (exercise.reps ? Number(exercise.reps) : null)
   const defaultRest = exerciseSets[0]?.rest_seconds || exercise.rest_seconds || 60
 
-  // Current set to show (next uncompleted set)
-  const [currentSetNumber, setCurrentSetNumber] = useState(1)
-
   // Rest timer state
   const [isResting, setIsResting] = useState(false)
   const [restTimeLeft, setRestTimeLeft] = useState(getRestSeconds(1))
-
-  // Update current set when completedSets changes
-  useEffect(() => {
-    // Find the first uncompleted set
-    for (let i = 1; i <= totalSets; i++) {
-      if (!completedSets.has(i)) {
-        setCurrentSetNumber(i)
-        return
-      }
-    }
-    // All sets completed
-    setCurrentSetNumber(totalSets)
-  }, [completedSets, totalSets])
 
   // Rest timer countdown
   useEffect(() => {
@@ -102,13 +86,13 @@ export function ExerciseLogger({
     return previousLogs.find((log) => log.set_number === setNumber)
   }
 
-  const handleSetComplete = (weight: number | null, reps: number) => {
-    onSetComplete(exercise.id, currentSetNumber, weight, reps)
+  const handleSetComplete = (setNumber: number, weight: number | null, reps: number) => {
+    onSetComplete(exercise.id, setNumber, weight, reps)
 
-    // Start rest timer if not the last set (use current set's rest time)
-    if (currentSetNumber < totalSets) {
+    // Start rest timer if not the last set (use completed set's rest time)
+    if (setNumber < totalSets) {
       setIsResting(true)
-      setRestTimeLeft(getRestSeconds(currentSetNumber))
+      setRestTimeLeft(getRestSeconds(setNumber))
     }
   }
 
@@ -118,9 +102,6 @@ export function ExerciseLogger({
 
   const completedCount = completedSets.size
   const isAllCompleted = completedCount === totalSets
-  const currentTargetReps = getTargetReps(currentSetNumber)
-  const currentTargetWeight = getTargetWeight(currentSetNumber)
-  const prevLog = getPreviousLog(currentSetNumber)
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -228,42 +209,27 @@ export function ExerciseLogger({
             </div>
           )}
 
-          {/* Current Set - Only show when not resting */}
+          {/* All Sets - show all at once */}
           {!isResting && !isAllCompleted && (
-            <div className="space-y-3">
-              {/* Set progress indicator */}
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-gray-400">
-                  Set {currentSetNumber} of {totalSets}
-                </p>
-                <div className="flex gap-1">
-                  {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => (
-                    <div
-                      key={setNum}
-                      className={cn(
-                        'w-3 h-3 rounded-full transition-colors',
-                        completedSets.has(setNum)
-                          ? 'bg-green-500'
-                          : setNum === currentSetNumber
-                          ? 'bg-accent'
-                          : 'bg-gray-600'
-                      )}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Current set logger */}
-              <SetLogger
-                setNumber={currentSetNumber}
-                targetReps={currentTargetReps}
-                targetWeight={currentTargetWeight}
-                previousWeight={prevLog?.weight}
-                previousReps={prevLog?.reps}
-                isCompleted={completedSets.has(currentSetNumber)}
-                onComplete={handleSetComplete}
-                disabled={disabled}
-              />
+            <div className="space-y-2">
+              {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => {
+                const setTargetReps = getTargetReps(setNum)
+                const setTargetWeight = getTargetWeight(setNum)
+                const setPrevLog = getPreviousLog(setNum)
+                return (
+                  <SetLogger
+                    key={setNum}
+                    setNumber={setNum}
+                    targetReps={setTargetReps}
+                    targetWeight={setTargetWeight}
+                    previousWeight={setPrevLog?.weight}
+                    previousReps={setPrevLog?.reps}
+                    isCompleted={completedSets.has(setNum)}
+                    onComplete={(weight, reps) => handleSetComplete(setNum, weight, reps)}
+                    disabled={disabled}
+                  />
+                )
+              })}
             </div>
           )}
 
