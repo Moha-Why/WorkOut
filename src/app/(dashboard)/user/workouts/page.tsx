@@ -389,11 +389,9 @@ export default function UserWorkoutsPage() {
                     >
                       <WorkoutCard
                         workout={workout}
-                        exercises={workout.exercises}
                         exerciseCount={workout.exercises.length}
                         isCompleted={workout.is_completed || false}
                         showDownload={true}
-                        showExercises={true}
                       />
                     </Link>
                   ))}

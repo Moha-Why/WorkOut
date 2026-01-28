@@ -699,63 +699,34 @@ export default function OfflinePage() {
                     }
 
                     return (
-                      <div className="space-y-4">
-                        {/* Previous session hint */}
-                        {prevSessionLog && !exerciseCompletedSets.has(currentSetNumber) && (
-                          <div className="flex items-center gap-2 text-xs text-text-primary/50 bg-bg-hover/50 px-3 py-2 rounded-lg">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span>Last session: {prevSessionLog.weight}kg × {prevSessionLog.reps} reps</span>
-                          </div>
-                        )}
-
+                      <div className="space-y-3">
                         {/* Set progress indicator */}
                         <div className="flex items-center justify-between">
                           <p className="text-sm font-medium text-text-primary/60">
-                            {isAllCompleted ? 'All sets complete!' : `Set ${currentSetNumber} of ${totalSets}`}
+                            {isAllCompleted ? 'All sets complete!' : `${completedCount} of ${totalSets} sets done`}
                           </p>
-                          <div className="flex gap-1">
-                            {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => (
-                              <div
-                                key={setNum}
-                                className={`w-3 h-3 rounded-full transition-colors ${
-                                  exerciseCompletedSets.has(setNum)
-                                    ? 'bg-green-500'
-                                    : setNum === currentSetNumber
-                                    ? 'bg-accent'
-                                    : 'bg-gray-600'
-                                }`}
-                              />
-                            ))}
-                          </div>
                         </div>
 
-                        {/* Set Logger - only show when profile exists and not resting */}
-                        {!isResting && !isAllCompleted && profile && (
-                          <SetLogger
-                            setNumber={currentSetNumber}
-                            targetReps={currentExercise.reps ? Number(currentExercise.reps) : null}
-                            previousWeight={prevSessionLog?.weight}
-                            previousReps={prevSessionLog?.reps}
-                            isCompleted={exerciseCompletedSets.has(currentSetNumber)}
-                            onComplete={(weight, reps) => handleSetComplete(currentExercise.id, currentSetNumber, weight, reps)}
-                          />
-                        )}
-
-                        {/* All sets completed message */}
-                        {isAllCompleted && (
-                          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
-                            <svg className="w-10 h-10 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p className="text-green-500 font-semibold">Exercise Complete!</p>
-                            <p className="text-sm text-green-500/70 mt-1">All {totalSets} sets logged</p>
+                        {/* All Sets - show all at once */}
+                        {profile ? (
+                          <div className="space-y-2">
+                            {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => {
+                              const prevLog = exercisePrevLogs?.get(setNum)
+                              return (
+                                <SetLogger
+                                  key={setNum}
+                                  setNumber={setNum}
+                                  targetReps={currentExercise.reps ? Number(currentExercise.reps) : null}
+                                  previousWeight={prevLog?.weight}
+                                  previousReps={prevLog?.reps}
+                                  isCompleted={exerciseCompletedSets.has(setNum)}
+                                  onComplete={(weight, reps) => handleSetComplete(currentExercise.id, setNum, weight, reps)}
+                                />
+                              )
+                            })}
                           </div>
-                        )}
-
-                        {/* Preview mode message when no profile */}
-                        {!profile && !isAllCompleted && (
+                        ) : (
+                          /* Preview mode message when no profile */
                           <div className="bg-accent/10 border border-accent/30 rounded-xl p-4">
                             <div className="flex items-start gap-3">
                               <svg className="w-5 h-5 text-accent mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -771,28 +742,13 @@ export default function OfflinePage() {
                           </div>
                         )}
 
-                        {/* Completed sets summary */}
-                        {completedCount > 0 && (
-                          <div className="border-t border-border pt-4">
-                            <p className="text-xs text-text-primary/50 mb-2">Completed Sets:</p>
-                            <div className="space-y-1">
-                              {Array.from({ length: totalSets }, (_, i) => i + 1)
-                                .filter((setNum) => exerciseCompletedSets.has(setNum))
-                                .map((setNum) => {
-                                  const log = exerciseLogs.find(l => l.set_number === setNum)
-                                  return (
-                                    <div
-                                      key={setNum}
-                                      className="flex items-center justify-between text-sm text-text-primary/70 bg-bg-hover/50 px-3 py-2 rounded"
-                                    >
-                                      <span>Set {setNum}</span>
-                                      <span className="text-green-500">
-                                        {log ? `${log.weight}kg × ${log.reps}` : '✓'}
-                                      </span>
-                                    </div>
-                                  )
-                                })}
-                            </div>
+                        {/* All sets completed message */}
+                        {isAllCompleted && (
+                          <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
+                            <svg className="w-8 h-8 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-green-500 font-semibold">Exercise Complete!</p>
                           </div>
                         )}
                       </div>
@@ -995,12 +951,12 @@ export default function OfflinePage() {
                     <>
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span>{pendingSyncCount} pending</span>
-                  </>
-                )}
-              </button>
-            )}
+                      </svg>
+                      <span>{pendingSyncCount} pending</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
           <h1 className="text-2xl font-bold text-text-primary">
@@ -1230,3 +1186,4 @@ export default function OfflinePage() {
     </div>
   )
 }
+
