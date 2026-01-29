@@ -28,7 +28,7 @@ export default function WorkoutPlayerPage() {
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isOfflineMode, setIsOfflineMode] = useState(false)
-  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
+  const [expandedExerciseIds, setExpandedExerciseIds] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isOpen: boolean }>({
     message: '',
     type: 'success',
@@ -49,6 +49,10 @@ export default function WorkoutPlayerPage() {
 
   // Track if workout was already completed today
   const [workoutAlreadyCompleted, setWorkoutAlreadyCompleted] = useState(false)
+
+  // Rest timer state (at page level so it's always visible)
+  const [isResting, setIsResting] = useState(false)
+  const [restTimeLeft, setRestTimeLeft] = useState(0)
 
   // Sync pending logs when online
   const syncPendingLogs = useCallback(async () => {
@@ -98,9 +102,9 @@ export default function WorkoutPlayerPage() {
             setWorkout(offlineWorkout.data)
             setExercises(offlineWorkout.exercises)
             setIsOfflineMode(true)
-            // Expand first exercise by default
+            // Expand all exercises by default
             if (offlineWorkout.exercises.length > 0) {
-              setExpandedExerciseId(offlineWorkout.exercises[0].id)
+              setExpandedExerciseIds(new Set(offlineWorkout.exercises.map(e => e.id)))
             }
             setIsLoading(false)
             return
@@ -134,7 +138,7 @@ export default function WorkoutPlayerPage() {
             setExercises(offlineWorkout.exercises)
             setIsOfflineMode(true)
             if (offlineWorkout.exercises.length > 0) {
-              setExpandedExerciseId(offlineWorkout.exercises[0].id)
+              setExpandedExerciseIds(new Set(offlineWorkout.exercises.map(e => e.id)))
             }
             setIsLoading(false)
             return
@@ -168,8 +172,8 @@ export default function WorkoutPlayerPage() {
           setExerciseSetsMap(setsMap)
         }
 
-        // Expand first exercise by default
-        setExpandedExerciseId((exerciseData[0] as any).id)
+        // Expand all exercises by default
+        setExpandedExerciseIds(new Set(exerciseData.map((e: any) => e.id)))
       }
 
       setIsLoading(false)
@@ -279,13 +283,36 @@ export default function WorkoutPlayerPage() {
     }
   }, [syncPendingLogs])
 
+  // Rest timer countdown
+  useEffect(() => {
+    if (!isResting) return
+
+    if (restTimeLeft <= 0) {
+      setIsResting(false)
+      return
+    }
+
+    const timer = setInterval(() => {
+      setRestTimeLeft((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [isResting, restTimeLeft])
+
   const handleSetComplete = async (
     exerciseId: string,
     setNumber: number,
     weight: number | null,
-    reps: number
+    reps: number,
+    restSeconds: number
   ) => {
     if (!profile) return
+
+    // Start rest timer if restSeconds > 0
+    if (restSeconds > 0) {
+      setIsResting(true)
+      setRestTimeLeft(restSeconds)
+    }
 
     const logId = crypto.randomUUID()
     const completedAt = new Date().toISOString()
@@ -357,25 +384,6 @@ export default function WorkoutPlayerPage() {
       })
     }
 
-    // Check if exercise is now complete, expand next exercise
-    const exercise = exercises.find((e) => e.id === exerciseId)
-    if (exercise) {
-      const totalSets = exercise.sets || 3
-      const completedCount = (completedSets[exerciseId]?.size || 0) + 1
-      if (completedCount >= totalSets) {
-        // Find next incomplete exercise
-        const currentIndex = exercises.findIndex((e) => e.id === exerciseId)
-        for (let i = currentIndex + 1; i < exercises.length; i++) {
-          const nextExercise = exercises[i]
-          const nextCompletedCount = completedSets[nextExercise.id]?.size || 0
-          const nextTotalSets = nextExercise.sets || 3
-          if (nextCompletedCount < nextTotalSets) {
-            setExpandedExerciseId(nextExercise.id)
-            break
-          }
-        }
-      }
-    }
   }
 
   const handleFinishWorkout = async () => {
@@ -420,6 +428,13 @@ export default function WorkoutPlayerPage() {
 
   const progress = calculateProgress()
   const isWorkoutComplete = progress === 100
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
 
   if (isLoading) {
     return (
@@ -492,20 +507,40 @@ export default function WorkoutPlayerPage() {
             completedSets={completedSets[exercise.id] || new Set()}
             onSetComplete={handleSetComplete}
             disabled={false}
-            isExpanded={expandedExerciseId === exercise.id}
-            onToggleExpand={() =>
-              setExpandedExerciseId(
-                expandedExerciseId === exercise.id ? null : exercise.id
-              )
-            }
+            isExpanded={expandedExerciseIds.has(exercise.id)}
+            onToggleExpand={() => {
+              setExpandedExerciseIds(prev => {
+                const next = new Set(prev)
+                if (next.has(exercise.id)) {
+                  next.delete(exercise.id)
+                } else {
+                  next.add(exercise.id)
+                }
+                return next
+              })
+            }}
           />
         ))}
       </div>
 
-      {/* Finish button - fixed at bottom, respects sidebar */}
+      {/* Finish button / Rest Timer - fixed at bottom, respects sidebar */}
       <div className="fixed bottom-0 left-0 right-0 md:left-64 p-4 bg-gradient-to-t from-bg-main via-bg-main to-transparent z-10">
         <div className="max-w-2xl mx-auto px-2">
-          {workoutAlreadyCompleted ? (
+          {isResting ? (
+            <div className="bg-orange-500 text-white p-4 rounded-lg flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <p className="text-sm opacity-90">Rest Time</p>
+                <p className="text-3xl font-bold tabular-nums">{formatTime(restTimeLeft)}</p>
+              </div>
+              <Button
+                onClick={() => setIsResting(false)}
+                variant="outline"
+                className="border-white text-white hover:bg-white/20"
+              >
+                Skip
+              </Button>
+            </div>
+          ) : workoutAlreadyCompleted ? (
             <Button
               variant="outline"
               className="w-full py-4 text-lg font-bold border-green-500 text-green-500"

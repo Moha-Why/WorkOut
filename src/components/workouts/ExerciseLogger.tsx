@@ -1,19 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import { Exercise, SetLog, ExerciseSet } from '@/types'
 import { SetLogger } from './SetLogger'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import { Card, CardContent } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils/cn'
 
 interface ExerciseLoggerProps {
   exercise: Exercise
   exerciseSets?: ExerciseSet[]
   previousLogs?: SetLog[]
-  onSetComplete: (exerciseId: string, setNumber: number, weight: number | null, reps: number) => void
+  onSetComplete: (exerciseId: string, setNumber: number, weight: number | null, reps: number, restSeconds: number) => void
   completedSets: Set<number>
   disabled?: boolean
   isExpanded?: boolean
@@ -61,54 +59,19 @@ export function ExerciseLogger({
   const defaultReps = exerciseSets[0]?.target_reps || (exercise.reps ? Number(exercise.reps) : null)
   const defaultRest = exerciseSets[0]?.rest_seconds || exercise.rest_seconds || 60
 
-  // Rest timer state
-  const [isResting, setIsResting] = useState(false)
-  const [restTimeLeft, setRestTimeLeft] = useState(getRestSeconds(1))
-
-  // Rest timer countdown
-  useEffect(() => {
-    if (!isResting) return
-
-    if (restTimeLeft <= 0) {
-      setIsResting(false)
-      return
-    }
-
-    const timer = setInterval(() => {
-      setRestTimeLeft((prev) => prev - 1)
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [isResting, restTimeLeft])
-
   // Get previous log for a specific set
   const getPreviousLog = (setNumber: number): SetLog | undefined => {
     return previousLogs.find((log) => log.set_number === setNumber)
   }
 
   const handleSetComplete = (setNumber: number, weight: number | null, reps: number) => {
-    onSetComplete(exercise.id, setNumber, weight, reps)
-
-    // Start rest timer if not the last set (use completed set's rest time)
-    if (setNumber < totalSets) {
-      setIsResting(true)
-      setRestTimeLeft(getRestSeconds(setNumber))
-    }
-  }
-
-  const skipRest = () => {
-    setIsResting(false)
+    // Pass rest seconds to parent so it can handle the timer at page level
+    const restSeconds = setNumber < totalSets ? getRestSeconds(setNumber) : 0
+    onSetComplete(exercise.id, setNumber, weight, reps, restSeconds)
   }
 
   const completedCount = completedSets.size
   const isAllCompleted = completedCount === totalSets
-
-  // Format time as MM:SS
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
 
   return (
     <Card
@@ -192,25 +155,9 @@ export function ExerciseLogger({
             </div>
           )}
 
-          {/* Rest Timer */}
-          {isResting && (
-            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6 text-center">
-              <p className="text-sm text-orange-400 mb-2">Rest Time</p>
-              <p className="text-5xl font-bold text-orange-500 mb-4">
-                {formatTime(restTimeLeft)}
-              </p>
-              <Button
-                onClick={skipRest}
-                variant="outline"
-                className="border-orange-500 text-orange-500 hover:bg-orange-500/10"
-              >
-                Skip Rest
-              </Button>
-            </div>
-          )}
 
           {/* All Sets - show all at once */}
-          {!isResting && !isAllCompleted && (
+          {!isAllCompleted && (
             <div className="space-y-2">
               {Array.from({ length: totalSets }, (_, i) => i + 1).map((setNum) => {
                 const setTargetReps = getTargetReps(setNum)
