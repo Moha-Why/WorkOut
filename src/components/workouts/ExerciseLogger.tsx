@@ -66,7 +66,8 @@ export function ExerciseLogger({
 
   const handleSetComplete = (setNumber: number, weight: number | null, reps: number) => {
     // Pass rest seconds to parent so it can handle the timer at page level
-    const restSeconds = setNumber < totalSets ? getRestSeconds(setNumber) : 0
+    // Always show timer, even for the last set (to rest before next exercise)
+    const restSeconds = getRestSeconds(setNumber)
     onSetComplete(exercise.id, setNumber, weight, reps, restSeconds)
   }
 
