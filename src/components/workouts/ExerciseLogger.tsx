@@ -5,6 +5,8 @@ import { SetLogger } from './SetLogger'
 import { VideoPlayer } from '@/components/ui/VideoPlayer'
 import { MuscleModel } from '@/components/ui/MuscleModel'
 import { Card, CardContent } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
 import { cn } from '@/lib/utils/cn'
 
 interface ExerciseLoggerProps {
@@ -16,6 +18,8 @@ interface ExerciseLoggerProps {
   disabled?: boolean
   isExpanded?: boolean
   onToggleExpand?: () => void
+  totalSetsOverride?: number
+  onAddSet?: (exerciseId: string) => void
 }
 
 export function ExerciseLogger({
@@ -27,9 +31,13 @@ export function ExerciseLogger({
   disabled = false,
   isExpanded = false,
   onToggleExpand,
+  totalSetsOverride,
+  onAddSet,
 }: ExerciseLoggerProps) {
-  // Use exercise_sets if available, otherwise fall back to exercise defaults
-  const totalSets = exerciseSets.length > 0 ? exerciseSets.length : (exercise.sets || 3)
+  // Use override if provided, otherwise use exercise_sets if available, otherwise fall back to exercise defaults
+  const totalSets = totalSetsOverride ?? (exerciseSets.length > 0 ? exerciseSets.length : (exercise.sets || 3))
+  const plannedSets = exercise.sets || 3
+  const hasExtraSets = totalSets > plannedSets
 
   // Get set config for current set
   const getSetConfig = (setNumber: number): ExerciseSet | undefined => {
@@ -106,7 +114,12 @@ export function ExerciseLogger({
             )}
           </div>
           <div>
-            <h3 className="font-semibold text-text-primary">{exercise.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-text-primary">{exercise.name}</h3>
+              {hasExtraSets && (
+                <Badge variant="info" className="text-xs">+{totalSets - plannedSets} extra</Badge>
+              )}
+            </div>
             <p className="text-sm text-gray-500">
               {totalSets} sets × {defaultReps || '?'} reps
               {defaultRest && ` • ${defaultRest}s rest`}
@@ -183,13 +196,26 @@ export function ExerciseLogger({
 
           {/* All sets completed message */}
           {isAllCompleted && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6 text-center">
-              <svg className="w-12 h-12 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-green-500 font-semibold">Exercise Complete!</p>
-              <p className="text-sm text-gray-400 mt-1">All {totalSets} sets logged</p>
-            </div>
+            <>
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-6 text-center">
+                <svg className="w-12 h-12 text-green-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-green-500 font-semibold">Exercise Complete!</p>
+                <p className="text-sm text-gray-400 mt-1">All {totalSets} sets logged</p>
+              </div>
+
+              {/* Add set button */}
+              {onAddSet && (
+                <Button
+                  onClick={() => onAddSet(exercise.id)}
+                  variant="outline"
+                  className="w-full"
+                >
+                  + Add Set
+                </Button>
+              )}
+            </>
           )}
 
           {/* Completed sets summary */}

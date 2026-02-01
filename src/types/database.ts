@@ -192,6 +192,41 @@ export type Database = {
           updated_at?: string
         }
       }
+      exercise_sets: {
+        Row: {
+          id: string
+          exercise_id: string
+          set_number: number
+          target_weight: number | null
+          target_reps: number | null
+          rest_seconds: number
+          superset_group: string | null
+          superset_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          exercise_id: string
+          set_number: number
+          target_weight?: number | null
+          target_reps?: number | null
+          rest_seconds?: number
+          superset_group?: string | null
+          superset_order?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          exercise_id?: string
+          set_number?: number
+          target_weight?: number | null
+          target_reps?: number | null
+          rest_seconds?: number
+          superset_group?: string | null
+          superset_order?: number
+          created_at?: string
+        }
+      }
       user_programs: {
         Row: {
           id: string

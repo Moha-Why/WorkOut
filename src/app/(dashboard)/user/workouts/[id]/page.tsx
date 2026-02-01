@@ -6,10 +6,13 @@ import { useAuth } from '@/hooks/useAuth'
 import { createClient } from '@/lib/supabase/client'
 import { Exercise, Workout, SetLog, ExerciseSet } from '@/types'
 import { ExerciseLogger } from '@/components/workouts/ExerciseLogger'
+import { SupersetLogger } from '@/components/workouts/SupersetLogger'
+import { SetLogger } from '@/components/workouts/SetLogger'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Toast } from '@/components/ui/Toast'
 import { Card, CardContent } from '@/components/ui/Card'
+import { cn } from '@/lib/utils/cn'
 import { getWorkout as getOfflineWorkout } from '@/lib/offline/db'
 import {
   saveSetLog,
@@ -53,6 +56,7 @@ export default function WorkoutPlayerPage() {
   // Rest timer state (at page level so it's always visible)
   const [isResting, setIsResting] = useState(false)
   const [restTimeLeft, setRestTimeLeft] = useState(0)
+
 
   // Sync pending logs when online
   const syncPendingLogs = useCallback(async () => {
@@ -182,6 +186,7 @@ export default function WorkoutPlayerPage() {
     fetchWorkout()
   }, [workoutId, profile])
 
+
   // Fetch previous session logs and current session completed sets
   useEffect(() => {
     const fetchLogs = async () => {
@@ -304,12 +309,13 @@ export default function WorkoutPlayerPage() {
     setNumber: number,
     weight: number | null,
     reps: number,
-    restSeconds: number
+    restSeconds: number,
+    isLastInSuperset: boolean = true
   ) => {
     if (!profile) return
 
-    // Start rest timer if restSeconds > 0
-    if (restSeconds > 0) {
+    // Start rest timer only if this is the last exercise in a superset (or a normal exercise)
+    if (restSeconds > 0 && isLastInSuperset) {
       setIsResting(true)
       setRestTimeLeft(restSeconds)
     }
@@ -386,6 +392,7 @@ export default function WorkoutPlayerPage() {
 
   }
 
+
   const handleFinishWorkout = async () => {
     if (!profile || !workoutId || workoutAlreadyCompleted) return
 
@@ -418,7 +425,7 @@ export default function WorkoutPlayerPage() {
     let completedTotal = 0
 
     for (const exercise of exercises) {
-      const sets = exercise.sets || 3
+      const sets = exerciseSetsMap[exercise.id]?.length || exercise.sets || 3
       totalSets += sets
       completedTotal += completedSets[exercise.id]?.size || 0
     }
@@ -434,6 +441,34 @@ export default function WorkoutPlayerPage() {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
     return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Get info about which sets are in supersets with other exercises
+  const getSupersetInfo = (exerciseId: string, setNumber: number) => {
+    const setConfig = exerciseSetsMap[exerciseId]?.find(s => s.set_number === setNumber)
+    if (!setConfig?.superset_group) return null
+
+    // Find other sets in this superset
+    const otherSets: Array<{ exercise: Exercise, setNumber: number }> = []
+
+    exercises.forEach(ex => {
+      const exSets = exerciseSetsMap[ex.id] || []
+      exSets.forEach(s => {
+        if (s.superset_group === setConfig.superset_group &&
+            !(ex.id === exerciseId && s.set_number === setNumber)) {
+          otherSets.push({ exercise: ex, setNumber: s.set_number })
+        }
+      })
+    })
+
+    return {
+      supersetGroup: setConfig.superset_group,
+      supersetOrder: setConfig.superset_order || 0,
+      otherSets,
+      isLast: setConfig.superset_order === Math.max(...otherSets.map(os =>
+        exerciseSetsMap[os.exercise.id]?.find(s => s.set_number === os.setNumber)?.superset_order || 0
+      ), setConfig.superset_order || 0)
+    }
   }
 
   if (isLoading) {
@@ -498,29 +533,129 @@ export default function WorkoutPlayerPage() {
 
       {/* Exercises */}
       <div className="space-y-3">
-        {exercises.map((exercise) => (
-          <ExerciseLogger
-            key={exercise.id}
-            exercise={exercise}
-            exerciseSets={exerciseSetsMap[exercise.id] || []}
-            previousLogs={previousLogs[exercise.id]}
-            completedSets={completedSets[exercise.id] || new Set()}
-            onSetComplete={handleSetComplete}
-            disabled={false}
-            isExpanded={expandedExerciseIds.has(exercise.id)}
-            onToggleExpand={() => {
-              setExpandedExerciseIds(prev => {
-                const next = new Set(prev)
-                if (next.has(exercise.id)) {
-                  next.delete(exercise.id)
-                } else {
-                  next.add(exercise.id)
-                }
-                return next
-              })
-            }}
-          />
-        ))}
+        {exercises.map(exercise => {
+          const exerciseSetsForLogger = exerciseSetsMap[exercise.id] || []
+          const completedSetsSet = completedSets[exercise.id] || new Set()
+          const setCount = exerciseSetsForLogger.length || exercise.sets || 3
+
+          return (
+            <Card
+              key={exercise.id}
+              className={cn(
+                'transition-all overflow-hidden',
+                completedSetsSet.size === setCount && 'border-green-500/30 bg-green-500/5'
+              )}
+            >
+              {/* Exercise Header */}
+              <button
+                onClick={() => {
+                  setExpandedExerciseIds(prev => {
+                    const next = new Set(prev)
+                    if (next.has(exercise.id)) {
+                      next.delete(exercise.id)
+                    } else {
+                      next.add(exercise.id)
+                    }
+                    return next
+                  })
+                }}
+                className="w-full p-4 flex items-center justify-between text-left hover:bg-bg-hover/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      'w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold',
+                      completedSetsSet.size === setCount
+                        ? 'bg-green-500 text-white'
+                        : completedSetsSet.size > 0
+                        ? 'bg-accent/20 text-accent'
+                        : 'bg-bg-hover text-text-primary'
+                    )}
+                  >
+                    {completedSetsSet.size === setCount ? (
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      `${completedSetsSet.size}/${setCount}`
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-text-primary">{exercise.name}</h3>
+                    <p className="text-sm text-gray-500">
+                      {setCount} sets × {exerciseSetsForLogger[0]?.target_reps || exercise.reps || '?'} reps
+                    </p>
+                  </div>
+                </div>
+                <svg
+                  className={cn(
+                    'w-5 h-5 text-gray-400 transition-transform',
+                    expandedExerciseIds.has(exercise.id) && 'rotate-180'
+                  )}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Expanded Content */}
+              {expandedExerciseIds.has(exercise.id) && (
+                <CardContent className="pt-0 pb-4 space-y-3">
+                  {/* All sets */}
+                  {Array.from({ length: setCount }, (_, i) => i + 1).map((setNum) => {
+                    const setConfig = exerciseSetsForLogger.find(s => s.set_number === setNum)
+                    const isCompleted = completedSetsSet.has(setNum)
+                    const previousLog = previousLogs[exercise.id]?.find(log => log.set_number === setNum)
+                    const supersetInfo = getSupersetInfo(exercise.id, setNum)
+
+                    return (
+                      <div key={setNum} className="space-y-2">
+                        {/* Show superset badge if this set is in a superset */}
+                        {supersetInfo && supersetInfo.otherSets.length > 0 && (
+                          <div className="flex items-center gap-2 px-3 py-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                            <Badge variant="info" className="text-xs">SUPERSET</Badge>
+                            <span className="text-xs text-gray-400">
+                              with {supersetInfo.otherSets.map(os => `${os.exercise.name} Set ${os.setNumber}`).join(', ')}
+                            </span>
+                          </div>
+                        )}
+
+                        {!isCompleted && (
+                          <SetLogger
+                            setNumber={setNum}
+                            targetReps={setConfig?.target_reps || (exercise.reps ? Number(exercise.reps) : null)}
+                            targetWeight={setConfig?.target_weight || null}
+                            previousWeight={previousLog?.weight || undefined}
+                            previousReps={previousLog?.reps || undefined}
+                            isCompleted={isCompleted}
+                            onComplete={(weight, reps) => {
+                              const restSeconds = setConfig?.rest_seconds || exercise.rest_seconds || 60
+                              const isLastInSuperset = supersetInfo ? supersetInfo.isLast : true
+                              handleSetComplete(exercise.id, setNum, weight, reps, restSeconds, isLastInSuperset)
+                            }}
+                            disabled={false}
+                          />
+                        )}
+
+                        {isCompleted && (
+                          <div className="text-sm text-green-500 flex items-center gap-2 py-2 px-3">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Set {setNum} Completed
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                </CardContent>
+              )}
+            </Card>
+          )
+        })}
       </div>
 
       {/* Finish button / Rest Timer - fixed at bottom, respects sidebar */}

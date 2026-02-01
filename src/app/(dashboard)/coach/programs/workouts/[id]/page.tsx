@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { Toast } from '@/components/ui/Toast'
+import { cn } from '@/lib/utils/cn'
 import type { Workout, Exercise, ExerciseSet } from '@/types'
 
 interface SetConfig {
@@ -16,6 +17,8 @@ interface SetConfig {
   target_weight: string
   target_reps: string
   rest_seconds: string
+  superset_group?: string | null
+  superset_order?: number
 }
 
 interface ExerciseLibraryItem extends Exercise {
@@ -115,6 +118,8 @@ export default function WorkoutEditorPage() {
             target_weight: set.target_weight?.toString() || '',
             target_reps: set.target_reps?.toString() || '',
             rest_seconds: set.rest_seconds?.toString() || '60',
+            superset_group: set.superset_group || null,
+            superset_order: set.superset_order || 0,
           })
         }
         setExerciseSetsMap(setsMap)
@@ -128,6 +133,8 @@ export default function WorkoutEditorPage() {
             target_weight: '',
             target_reps: exercise.reps?.toString() || '',
             rest_seconds: exercise.rest_seconds?.toString() || '60',
+            superset_group: null,
+            superset_order: 0,
           }))
         }
         setExerciseSetsMap(setsMap)
@@ -326,6 +333,8 @@ export default function WorkoutEditorPage() {
         target_weight: lastSet?.target_weight || '',
         target_reps: lastSet?.target_reps || '',
         rest_seconds: lastSet?.rest_seconds || '60',
+        superset_group: null,
+        superset_order: 0,
       })
       return { ...prev, [exerciseId]: sets }
     })
@@ -340,6 +349,77 @@ export default function WorkoutEditorPage() {
       })) || []
       return { ...prev, [exerciseId]: sets }
     })
+  }
+
+  // Add SET to superset
+  const handleAddToSuperset = async (exerciseId: string, setNumber: number) => {
+    const sets = exerciseSetsMap[exerciseId] || []
+    const setConfig = sets.find(s => s.set_number === setNumber)
+    if (!setConfig) return
+
+    const supabase = createClient()
+
+    // If already in a superset, remove it
+    if (setConfig.superset_group) {
+      // Update in database
+      const { error } = await supabase
+        .from('exercise_sets')
+        .update({
+          superset_group: null,
+          superset_order: 0,
+        })
+        .eq('exercise_id', exerciseId)
+        .eq('set_number', setNumber)
+
+      if (error) {
+        setToast({ message: 'Error removing from superset', type: 'error', isOpen: true })
+        return
+      }
+
+      // Update local state
+      setExerciseSetsMap(prev => ({
+        ...prev,
+        [exerciseId]: prev[exerciseId].map(s =>
+          s.set_number === setNumber
+            ? { ...s, superset_group: null, superset_order: 0 }
+            : s
+        )
+      }))
+
+      setToast({ message: 'Removed from superset', type: 'success', isOpen: true })
+      return
+    }
+
+    // Not in a superset, create a new unique superset group
+    const exercise = exercises.find(e => e.id === exerciseId)
+    const supersetGroupId = `${exercise?.name.toLowerCase().replace(/\s+/g, '-')}-s${setNumber}-${Date.now()}`
+
+    // Update in database
+    const { error } = await supabase
+      .from('exercise_sets')
+      .update({
+        superset_group: supersetGroupId,
+        superset_order: 1,
+      })
+      .eq('exercise_id', exerciseId)
+      .eq('set_number', setNumber)
+
+    if (error) {
+      setToast({ message: 'Error adding to superset', type: 'error', isOpen: true })
+      return
+    }
+
+    // Update local state
+    setExerciseSetsMap(prev => ({
+      ...prev,
+      [exerciseId]: prev[exerciseId].map(s =>
+        s.set_number === setNumber
+          ? { ...s, superset_group: supersetGroupId, superset_order: 1 }
+          : s
+      )
+    }))
+
+    setToast({ message: 'Created superset', type: 'success', isOpen: true })
   }
 
   // Save exercise sets to database
@@ -358,6 +438,8 @@ export default function WorkoutEditorPage() {
         target_weight: config.target_weight ? parseFloat(config.target_weight) : null,
         target_reps: config.target_reps ? parseInt(config.target_reps) : null,
         rest_seconds: config.rest_seconds ? parseInt(config.rest_seconds) : null,
+        superset_group: config.superset_group || null,
+        superset_order: config.superset_order || 0,
       }))
 
       const { error } = await supabase.from('exercise_sets').insert(setData as any)
@@ -603,6 +685,17 @@ export default function WorkoutEditorPage() {
                                 />
                               </div>
                             </div>
+                            <Button
+                              variant={config.superset_group ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => handleAddToSuperset(exercise.id, config.set_number)}
+                              className={cn(
+                                "shrink-0",
+                                config.superset_group && "bg-blue-500 hover:bg-blue-600 text-white border-blue-500"
+                              )}
+                            >
+                              {config.superset_group ? `SS ${config.superset_group}` : "+ SS"}
+                            </Button>
                             {sets.length > 1 && (
                               <button
                                 onClick={() => handleRemoveSet(exercise.id, setIndex)}
