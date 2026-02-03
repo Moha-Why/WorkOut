@@ -443,6 +443,46 @@ export default function WorkoutPlayerPage() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  // Calculate set score (reps × weight) and return color based on range
+  const getSetScore = (weight: number | null, reps: number | null) => {
+    if (!weight || !reps) return null
+
+    const score = Math.round(weight * reps)
+
+    // Score ranges with colors (from lowest to highest intensity)
+    // 0-100: Light - Gray
+    // 101-200: Easy - Blue
+    // 201-350: Moderate - Green
+    // 351-500: Challenging - Yellow
+    // 501-700: Heavy - Orange
+    // 701+: Intense - Red
+
+    let color: string
+    let label: string
+
+    if (score <= 100) {
+      color = 'text-gray-400 bg-gray-500/10'
+      label = 'Light'
+    } else if (score <= 200) {
+      color = 'text-blue-400 bg-blue-500/10'
+      label = 'Easy'
+    } else if (score <= 350) {
+      color = 'text-green-400 bg-green-500/10'
+      label = 'Moderate'
+    } else if (score <= 500) {
+      color = 'text-yellow-400 bg-yellow-500/10'
+      label = 'Challenging'
+    } else if (score <= 700) {
+      color = 'text-orange-400 bg-orange-500/10'
+      label = 'Heavy'
+    } else {
+      color = 'text-red-400 bg-red-500/10'
+      label = 'Intense'
+    }
+
+    return { score, color, label }
+  }
+
   // Get info about which sets are in supersets with other exercises
   const getSupersetInfo = (exerciseId: string, setNumber: number) => {
     const setConfig = exerciseSetsMap[exerciseId]?.find(s => s.set_number === setNumber)
@@ -622,31 +662,62 @@ export default function WorkoutPlayerPage() {
                           </div>
                         )}
 
-                        {!isCompleted && (
-                          <SetLogger
-                            setNumber={setNum}
-                            targetReps={setConfig?.target_reps || (exercise.reps ? Number(exercise.reps) : null)}
-                            targetWeight={setConfig?.target_weight || null}
-                            previousWeight={previousLog?.weight || undefined}
-                            previousReps={previousLog?.reps || undefined}
-                            isCompleted={isCompleted}
-                            onComplete={(weight, reps) => {
-                              const restSeconds = setConfig?.rest_seconds || exercise.rest_seconds || 60
-                              const isLastInSuperset = supersetInfo ? supersetInfo.isLast : true
-                              handleSetComplete(exercise.id, setNum, weight, reps, restSeconds, isLastInSuperset)
-                            }}
-                            disabled={false}
-                          />
-                        )}
+                        {!isCompleted && (() => {
+                          const targetWeight = setConfig?.target_weight || null
+                          const targetReps = setConfig?.target_reps || (exercise.reps ? Number(exercise.reps) : null)
+                          const targetScore = getSetScore(targetWeight, targetReps)
 
-                        {isCompleted && (
-                          <div className="text-sm text-green-500 flex items-center gap-2 py-2 px-3">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Set {setNum} Completed
-                          </div>
-                        )}
+                          return (
+                            <div className="space-y-2">
+                              {/* Target score indicator */}
+                              {targetScore && (
+                                <div className={cn('inline-flex items-center gap-2 px-2 py-1 rounded text-xs font-medium', targetScore.color)}>
+                                  <span>Target: {targetScore.score}</span>
+                                  <span className="opacity-70">({targetScore.label})</span>
+                                </div>
+                              )}
+                              <SetLogger
+                                setNumber={setNum}
+                                targetReps={targetReps}
+                                targetWeight={targetWeight}
+                                previousWeight={previousLog?.weight || undefined}
+                                previousReps={previousLog?.reps || undefined}
+                                isCompleted={isCompleted}
+                                onComplete={(weight, reps) => {
+                                  const restSeconds = setConfig?.rest_seconds || exercise.rest_seconds || 60
+                                  const isLastInSuperset = supersetInfo ? supersetInfo.isLast : true
+                                  handleSetComplete(exercise.id, setNum, weight, reps, restSeconds, isLastInSuperset)
+                                }}
+                                disabled={false}
+                              />
+                            </div>
+                          )
+                        })()}
+
+                        {isCompleted && (() => {
+                          // Get the logged data for this completed set
+                          const completedLog = sessionLogs.find(
+                            log => log.exercise_id === exercise.id && log.set_number === setNum
+                          )
+                          const completedScore = getSetScore(completedLog?.weight || null, completedLog?.reps || null)
+
+                          return (
+                            <div className="flex items-center justify-between py-2 px-3 bg-green-500/10 rounded-lg">
+                              <div className="flex items-center gap-2 text-sm text-green-500">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <span>Set {setNum}: {completedLog?.weight}kg × {completedLog?.reps} reps</span>
+                              </div>
+                              {completedScore && (
+                                <div className={cn('inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold', completedScore.color)}>
+                                  <span>{completedScore.score}</span>
+                                  <span className="opacity-70">({completedScore.label})</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </div>
                     )
                   })}
