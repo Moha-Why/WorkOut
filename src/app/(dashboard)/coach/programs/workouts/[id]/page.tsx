@@ -362,7 +362,7 @@ export default function WorkoutEditorPage() {
     // If already in a superset, remove it
     if (setConfig.superset_group) {
       // Update in database
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('exercise_sets')
         .update({
           superset_group: null,
@@ -395,7 +395,7 @@ export default function WorkoutEditorPage() {
     const supersetGroupId = `${exercise?.name.toLowerCase().replace(/\s+/g, '-')}-s${setNumber}-${Date.now()}`
 
     // Update in database
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('exercise_sets')
       .update({
         superset_group: supersetGroupId,
@@ -686,7 +686,7 @@ export default function WorkoutEditorPage() {
                               </div>
                             </div>
                             <Button
-                              variant={config.superset_group ? "default" : "outline"}
+                              variant="outline"
                               size="sm"
                               onClick={() => handleAddToSuperset(exercise.id, config.set_number)}
                               className={cn(
@@ -694,7 +694,7 @@ export default function WorkoutEditorPage() {
                                 config.superset_group && "bg-blue-500 hover:bg-blue-600 text-white border-blue-500"
                               )}
                             >
-                              {config.superset_group ? `SS ${config.superset_group}` : "+ SS"}
+                              {config.superset_group ? `SS` : "+ SS"}
                             </Button>
                             {sets.length > 1 && (
                               <button

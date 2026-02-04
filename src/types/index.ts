@@ -80,6 +80,8 @@ export interface ExerciseSet {
   target_weight: number | null
   target_reps: number | null
   rest_seconds: number | null
+  superset_group: string | null
+  superset_order: number
   created_at?: string
 }
 
