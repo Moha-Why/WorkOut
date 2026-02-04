@@ -461,22 +461,22 @@ export default function WorkoutPlayerPage() {
     let label: string
 
     if (score <= 100) {
-      color = 'text-gray-400 bg-gray-500/10'
+      color = 'text-white bg-gray-500'
       label = 'Light'
     } else if (score <= 200) {
-      color = 'text-blue-400 bg-blue-500/10'
+      color = 'text-white bg-blue-500'
       label = 'Easy'
     } else if (score <= 350) {
-      color = 'text-green-400 bg-green-500/10'
+      color = 'text-white bg-green-500'
       label = 'Moderate'
     } else if (score <= 500) {
-      color = 'text-yellow-400 bg-yellow-500/10'
+      color = 'text-black bg-yellow-400'
       label = 'Challenging'
     } else if (score <= 700) {
-      color = 'text-orange-400 bg-orange-500/10'
+      color = 'text-white bg-orange-500'
       label = 'Heavy'
     } else {
-      color = 'text-red-400 bg-red-500/10'
+      color = 'text-white bg-red-500'
       label = 'Intense'
     }
 
